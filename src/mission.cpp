@@ -30,6 +30,8 @@ float roll = 0;
 float pitch = 0;
 float yaw = 0;
 geometry_msgs::Quaternion current_qtn_msg;
+tf::Quaternion current_qtn;
+geometry_msgs::PoseStamped pose;
 
 void imu_callback(const sensor_msgs::Imu::ConstPtr& msg) {
     current_qtn_msg = msg->orientation;
@@ -38,6 +40,20 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg) {
     // ROS_INFO("Imu Orientation x: [%f], y: [%f], z: [%f], w: [%f]", msg->orientation.x,msg->orientation.y,msg->orientation.z,msg->orientation.w);
     // ROS_INFO("Imu Angular Velocity roll: [%f], pitch: [%f], yaw: [%f]", msg->angular_velocity.x,msg->angular_velocity.y,msg->angular_velocity.z);
     // ROS_INFO("Imu Linear Acceleration x: [%f], y: [%f], z: [%f]", msg->linear_acceleration.x,msg->linear_acceleration.y,msg->linear_acceleration.z);
+}
+
+
+void compute_waypoint(float x, float y, float z, float roll, float pitch, float yaw) {
+    pose.pose.position.x = x;
+    pose.pose.position.y = y;
+    pose.pose.position.z = z;
+
+    tf::Quaternion delta_qtn = tf::createQuaternionFromRPY(roll, pitch, yaw);
+
+    quaternionMsgToTF(current_qtn_msg , current_qtn);
+    current_qtn = delta_qtn * current_qtn;
+    current_qtn.normalize();
+    quaternionTFToMsg(current_qtn, pose.pose.orientation);
 }
 
 
@@ -71,11 +87,7 @@ int main(int argc, char **argv)
         ROS_INFO("connecting to FCT...");
     }
 
-    tf::Quaternion current_qtn;
-    // tf::Quaternion current_qtn = tf::createQuaternionFromRPY(roll, pitch, yaw);
-    tf::Quaternion delta_qtn;
 
-    geometry_msgs::PoseStamped pose;
     pose.pose.position.x = 0;
     pose.pose.position.y = 0;
     pose.pose.position.z = FLIGHT_ALTITUDE;
@@ -102,7 +114,7 @@ int main(int argc, char **argv)
     ros::Time last_request = ros::Time::now();
 
     // change to offboard mode and arm
-    while(ros::ok() && !current_state.armed){
+    while(ros::ok() && !current_state.armed) {
         if( current_state.mode != "OFFBOARD" &&
             (ros::Time::now() - last_request > ros::Duration(5.0))){
           ROS_INFO(current_state.mode.c_str());
@@ -127,9 +139,7 @@ int main(int argc, char **argv)
     }
 
     // go to the first waypoint
-    pose.pose.position.x = 0;
-    pose.pose.position.y = 0;
-    pose.pose.position.z = FLIGHT_ALTITUDE;
+    compute_waypoint(0, 0, FLIGHT_ALTITUDE, roll, pitch, yaw);
 
     ROS_INFO("going to the first way point");
     for(int i = 0; ros::ok() && i < 10*20; ++i){
@@ -141,33 +151,8 @@ int main(int argc, char **argv)
 
 
     // go to the second waypoint
-    pose.pose.position.x = 0;
-    pose.pose.position.y = travel_dist;
-    pose.pose.position.z = FLIGHT_ALTITUDE;
-
-
-
-    // here your desired angles
     yaw = M_PI / 6;
-    delta_qtn = tf::createQuaternionFromRPY(roll, pitch, yaw);
-    // quaternionMsgToTF(commanded_pose.pose.orientation , q_orig);  // Get the original orientation of 'commanded_pose'
-    
-    quaternionMsgToTF(current_qtn_msg , current_qtn);
-    current_qtn = delta_qtn * current_qtn;
-    current_qtn.normalize();
-    pose.pose.orientation.x = current_qtn.x();
-    pose.pose.orientation.y = current_qtn.y();
-    pose.pose.orientation.z = current_qtn.z();
-    pose.pose.orientation.w = current_qtn.w();
-
-
-    // quaternionTFToMsg(q_new, commanded_pose.pose.orientation); 
-
-
-
-
-
-
+    compute_waypoint(0, travel_dist, FLIGHT_ALTITUDE, roll, pitch, yaw);
 
     //send setpoints for 10 seconds
     ROS_INFO("going to second way point");
@@ -178,21 +163,13 @@ int main(int argc, char **argv)
     }
     ROS_INFO("second way point finished!");
 
-    // go to the third waypoint
-    pose.pose.position.x = travel_dist;
-    pose.pose.position.y = travel_dist;
-    pose.pose.position.z = FLIGHT_ALTITUDE;
 
-    // here your desired angles
+
+
+
+    // go to the third waypoint
     yaw = -M_PI / 6;
-    delta_qtn = tf::createQuaternionFromRPY(roll, pitch, yaw);
-    quaternionMsgToTF(current_qtn_msg , current_qtn);
-    current_qtn = delta_qtn * current_qtn;
-    current_qtn.normalize();
-    pose.pose.orientation.x = current_qtn.x();
-    pose.pose.orientation.y = current_qtn.y();
-    pose.pose.orientation.z = current_qtn.z();
-    pose.pose.orientation.w = current_qtn.w();
+    compute_waypoint(travel_dist, travel_dist, FLIGHT_ALTITUDE, roll, pitch, yaw);
 
     //send setpoints for 10 seconds
     ROS_INFO("going to third way point");
@@ -204,20 +181,8 @@ int main(int argc, char **argv)
     ROS_INFO("third way point finished!");
     
     // go to the forth waypoint
-    pose.pose.position.x = travel_dist;
-    pose.pose.position.y = 0;
-    pose.pose.position.z = FLIGHT_ALTITUDE;
-
-    // here your desired angles
     yaw = M_PI / 6;
-    delta_qtn = tf::createQuaternionFromRPY(roll, pitch, yaw);
-    quaternionMsgToTF(current_qtn_msg , current_qtn);
-    current_qtn = delta_qtn * current_qtn;
-    current_qtn.normalize();
-    pose.pose.orientation.x = current_qtn.x();
-    pose.pose.orientation.y = current_qtn.y();
-    pose.pose.orientation.z = current_qtn.z();
-    pose.pose.orientation.w = current_qtn.w();
+    compute_waypoint(travel_dist, 0, FLIGHT_ALTITUDE, roll, pitch, yaw);
 
     //send setpoints for 10 seconds
     ROS_INFO("going to forth way point");
@@ -228,20 +193,9 @@ int main(int argc, char **argv)
     }
     ROS_INFO("forth way point finished!");
     
-    pose.pose.position.x = 0;
-    pose.pose.position.y = 0;
-    pose.pose.position.z = FLIGHT_ALTITUDE;
-
     // here your desired angles
     yaw = M_PI / 6;
-    delta_qtn = tf::createQuaternionFromRPY(roll, pitch, yaw);
-    quaternionMsgToTF(current_qtn_msg , current_qtn);
-    current_qtn = delta_qtn * current_qtn;
-    current_qtn.normalize();
-    pose.pose.orientation.x = current_qtn.x();
-    pose.pose.orientation.y = current_qtn.y();
-    pose.pose.orientation.z = current_qtn.z();
-    pose.pose.orientation.w = current_qtn.w();
+    compute_waypoint(0, 0, FLIGHT_ALTITUDE, roll, pitch, yaw);
 
     ROS_INFO("going back to the first point!");
     //send setpoints for 10 seconds
