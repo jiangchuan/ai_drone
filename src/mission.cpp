@@ -46,6 +46,8 @@ double getOffset(double x, double y) {
 
 
 void getRPY() {
+    // ROS_INFO("getRPY: x = %1.1f, y = %1.1f, z = %1.1f, w = %1.1f", current_qtn.x(), current_qtn.y(), current_qtn.z(), current_qtn.w());
+
     tf::Matrix3x3 m(current_qtn);
     m.getRPY(roll, pitch, yaw);
     // ROS_INFO("roll, pitch, yaw=%1.2f  %1.2f  %1.2f", roll, pitch, yaw);
@@ -69,12 +71,19 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg) {
 
 
 void set_waypoint(double x, double y, double z, double roll, double pitch, double yaw) {
+
+    // ROS_INFO("before: x = %1.1f, y = %1.1f, z = %1.1f", pose.pose.position.x, pose.pose.position.y, pose.pose.position.z);
+
     pose.pose.position.x = x;
     pose.pose.position.y = y;
     pose.pose.position.z = z;
 
-    tf::Quaternion current_qtn = tf::createQuaternionFromRPY(roll, pitch, yaw);
+    // ROS_INFO("after: x = %1.1f, y = %1.1f, z = %1.1f", pose.pose.position.x, pose.pose.position.y, pose.pose.position.z);
+
+    current_qtn = tf::createQuaternionFromRPY(roll, pitch, yaw);
     current_qtn.normalize();
+
+    // ROS_INFO("x = %1.1f, y = %1.1f, z = %1.1f, w = %1.1f", current_qtn.x(), current_qtn.y(), current_qtn.z(), current_qtn.w());
     quaternionTFToMsg(current_qtn, pose.pose.orientation);
 }
 
@@ -83,11 +92,16 @@ void compute_waypoint(double dx, double dy, double dz, double droll, double dpit
     pose.pose.position.y += dy;
     pose.pose.position.z += dz;
 
+    // ROS_INFO("x = %1.1f, y = %1.1f, z = %1.1f", pose.pose.position.x, pose.pose.position.y, pose.pose.position.z);
+
+
     tf::Quaternion delta_qtn = tf::createQuaternionFromRPY(droll, dpitch, dyaw);
 
     quaternionMsgToTF(current_qtn_msg , current_qtn);
     current_qtn = delta_qtn * current_qtn;
     current_qtn.normalize();
+    // ROS_INFO("x = %1.1f, y = %1.1f, z = %1.1f, w = %1.1f", current_qtn.x(), current_qtn.y(), current_qtn.z(), current_qtn.w());
+
     quaternionTFToMsg(current_qtn, pose.pose.orientation);
 }
 
@@ -173,25 +187,26 @@ int main(int argc, char **argv)
         rate.sleep();
     }
 
-    ROS_INFO("going to initial way point ...");
-    compute_waypoint(0.0, 0.0, FLIGHT_ALTITUDE, 0.0, 0.0, M_PI / 6);
-
+    ROS_INFO("going to initial way point =====>");
+    set_waypoint(0.0, 0.0, FLIGHT_ALTITUDE, 0.0, 0.0, M_PI * 0.4);
     for(int i = 0; ros::ok() && i < DELTA_SECONDS * ROS_RATE; ++i){
       local_pos_pub.publish(pose);
       ros::spinOnce();
       rate.sleep();
     }
-    ROS_INFO("... initial way point finished!");
+    getRPY(); // Get yaw
+    ROS_INFO("  x = %1.1f, y = %1.1f, z = %1.1f", pose.pose.position.x, pose.pose.position.y, pose.pose.position.z, yaw * 180.0 / M_PI);    
+    ROS_INFO("  roll = %1.1f degrees, pitch = %1.1f degrees, yaw = %1.1f degrees", roll * 180.0 / M_PI, pitch * 180.0 / M_PI, yaw * 180.0 / M_PI);    
+    ROS_INFO("=====> initial way point finished!\n");
 
 
 
     // Initialize
     double offset0 = getOffset(pose.pose.position.x, pose.pose.position.y);
     getRPY(); // Get yaw 
-    double yaw0 = yaw;
 
 
-    ROS_INFO("going to way point 0 ...");
+    ROS_INFO("going to way point 0 =====>");
     // No need to adjust in the first step
     ROS_INFO("Current yaw = %1.1f degrees", yaw * 180.0 / M_PI);
 
@@ -210,29 +225,32 @@ int main(int argc, char **argv)
 
     double offset = getOffset(pose.pose.position.x, pose.pose.position.y);
     double theta0 = asin((offset - offset0) / DELTA_METERS);
-    double alpha = yaw0 - theta0;
+    double alpha = yaw - theta0;
 
-    ROS_INFO("offset0 = %1.1f, offset = %1.1f, yaw0 = %1.1f degrees", offset0, offset, yaw0 * 180.0 / M_PI);
+    ROS_INFO("offset0 = %1.1f, offset = %1.1f, yaw = %1.1f degrees", offset0, offset, yaw * 180.0 / M_PI);
 
 
     // Initialize for next step
     double alpha_avg = alpha;
     offset0 = offset;
     getRPY();
-    yaw0 = yaw;
+    double yaw0 = yaw;
     ROS_INFO("Cable orientation = %1.1f degrees", alpha_avg * 180.0 / M_PI);
-    ROS_INFO("... way point 0 finished!");
+    getRPY(); // Get yaw
+    ROS_INFO("  x = %1.1f, y = %1.1f, z = %1.1f", pose.pose.position.x, pose.pose.position.y, pose.pose.position.z, yaw * 180.0 / M_PI);    
+    ROS_INFO("  roll = %1.1f degrees, pitch = %1.1f degrees, yaw = %1.1f degrees", roll * 180.0 / M_PI, pitch * 180.0 / M_PI, yaw * 180.0 / M_PI);    
+    ROS_INFO("=====> way point 0 finished!\n");
 
 
     for (int iwp = 1; iwp < 5; iwp++) {
-        ROS_INFO("going to way point %d ...", iwp);
+        ROS_INFO("going to way point %d =====>", iwp);
         ROS_INFO("Current yaw = %1.1f degrees", yaw * 180.0 / M_PI);
         yaw = alpha_avg + asin(-offset / DELTA_METERS); // Adjust yaw
         double dx = DELTA_METERS * cos(yaw);
         double dy = DELTA_METERS * sin(yaw);
         double dz = 0.0;
-        double dyaw = yaw - yaw0;
-        ROS_INFO("delta yaw = %1.1f degrees", dyaw * 180.0 / M_PI);
+        double dyaw = alpha_avg - yaw0; // Change this
+        ROS_INFO("yaw0 = %1.1f degrees, yaw = %1.1f degrees, delta yaw = %1.1f degrees", yaw0 * 180.0 / M_PI, yaw * 180.0 / M_PI, dyaw * 180.0 / M_PI);
         // TODO: Added upper limit on dz and dyaw
         compute_waypoint(dx, dy, dz, 0.0, 0.0, dyaw);
 
@@ -243,9 +261,11 @@ int main(int argc, char **argv)
             rate.sleep();
         }
 
-        double offset = getOffset(pose.pose.position.x, pose.pose.position.y);
+        offset = getOffset(pose.pose.position.x, pose.pose.position.y);
         double theta0 = asin((offset - offset0) / DELTA_METERS);
-        double alpha = yaw0 - theta0;
+        ROS_INFO("offset0 = %1.1f, offset = %1.1f", offset0, offset);
+        double alpha = yaw - theta0;
+        ROS_INFO("yaw0 = %1.1f degrees, theta0 = %1.1f degrees, alpha = %1.1f degrees", yaw0 * 180.0 / M_PI, theta0 * 180.0 / M_PI, alpha * 180.0 / M_PI);
 
         // Initialize for next step
         alpha_avg = alpha * lambda + alpha_avg * (1 - lambda);
@@ -253,7 +273,10 @@ int main(int argc, char **argv)
         getRPY();
         yaw0 = yaw;
         ROS_INFO("Cable orientation = %1.1f degrees", alpha_avg * 180.0 / M_PI);
-        ROS_INFO("... way point %d finished!", iwp);
+        getRPY(); // Get yaw
+        ROS_INFO("  x = %1.1f, y = %1.1f, z = %1.1f", pose.pose.position.x, pose.pose.position.y, pose.pose.position.z, yaw * 180.0 / M_PI);    
+        ROS_INFO("  roll = %1.1f degrees, pitch = %1.1f degrees, yaw = %1.1f degrees", roll * 180.0 / M_PI, pitch * 180.0 / M_PI, yaw * 180.0 / M_PI);    
+        ROS_INFO("=====> way point %d finished!\n", iwp);
     }
 
 
