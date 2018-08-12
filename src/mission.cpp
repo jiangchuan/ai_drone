@@ -207,6 +207,7 @@ int main(int argc, char **argv)
 
     double dx = 0.0, dy = 0.0, dz = 0.0;
     double offset0 = 0.0, offset = 0.0;
+    double theta0 = 0.0, alpha = 0.0;
     bool good_yaw = false;
 
     while (!good_yaw) {
@@ -229,9 +230,21 @@ int main(int argc, char **argv)
         }
 
         offset = getOffset(pose.pose.position.x, pose.pose.position.y);
-        if (offset > 0.8 * DELTA_METERS && offset0 > 0 && offset > offset0) { // on the left of cable
+        theta0 = asin((offset - offset0) / DELTA_METERS);
+        ROS_INFO("offset0 = %1.1f, offset = %1.1f", offset0, offset);
+        alpha = yaw - theta0;
+        ROS_INFO("yaw = %1.1f degrees, theta0 = %1.1f degrees, alpha = %1.1f degrees", yaw * 180.0 / M_PI, theta0 * 180.0 / M_PI, alpha * 180.0 / M_PI);
+        ROS_INFO("offset0 = %1.1f, offset = %1.1f, yaw = %1.1f degrees", offset0, offset, yaw * 180.0 / M_PI);
+
+        dx = offset * sin(alpha);
+        dy = offset * cos(alpha);
+        dz = 0.0;
+        double dyaw = alpha - yaw; // Change this
+
+
+        if ((offset > 0.5 * DELTA_METERS && offset0 > 0 && offset > offset0) || (offset < -0.5 * DELTA_METERS && offset0 < 0 && offset < offset0)) { // on the left of cable
             // Go back to initial point and restart
-            compute_waypoint(-dx, -dy, -dz, 0.0, 0.0, -5.0 * M_PI / 180.0); // decrease yaw by 5 degrees
+            compute_waypoint(dx, dy, dz, 0.0, 0.0, dyaw); // Go back to cable
             //send setpoints for 10 seconds
             for(int i = 0; ros::ok() && i < DELTA_SECONDS * ROS_RATE; ++i) {
                 local_pos_pub.publish(pose);
@@ -241,28 +254,22 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if (offset < -0.8 * DELTA_METERS && offset0 < 0 && offset < offset0) { // on the right of cable
-            // Go back to initial point and restart
-            compute_waypoint(-dx, -dy, -dz, 0.0, 0.0, 5.0 * M_PI / 180.0); // increase yaw by 5 degrees
-            //send setpoints for 10 seconds
-            for(int i = 0; ros::ok() && i < DELTA_SECONDS * ROS_RATE; ++i) {
-                local_pos_pub.publish(pose);
-                ros::spinOnce();
-                rate.sleep();
-            }
-            continue;
-        }
+        // if (offset < -0.5 * DELTA_METERS && offset0 < 0 && offset < offset0) { // on the right of cable
+        //     // Go back to initial point and restart
+        //     compute_waypoint(-dx, -dy, -dz, 0.0, 0.0, 5.0 * M_PI / 180.0); // increase yaw by 5 degrees
+        //     //send setpoints for 10 seconds
+        //     for(int i = 0; ros::ok() && i < DELTA_SECONDS * ROS_RATE; ++i) {
+        //         local_pos_pub.publish(pose);
+        //         ros::spinOnce();
+        //         rate.sleep();
+        //     }
+        //     continue;
+        // }
 
         good_yaw = true;
     }
 
 
-    double theta0 = asin((offset - offset0) / DELTA_METERS);
-    ROS_INFO("offset0 = %1.1f, offset = %1.1f", offset0, offset);
-    double alpha = yaw - theta0;
-    ROS_INFO("yaw = %1.1f degrees, theta0 = %1.1f degrees, alpha = %1.1f degrees", yaw * 180.0 / M_PI, theta0 * 180.0 / M_PI, alpha * 180.0 / M_PI);
-
-    ROS_INFO("offset0 = %1.1f, offset = %1.1f, yaw = %1.1f degrees", offset0, offset, yaw * 180.0 / M_PI);
 
 
     // Initialize for next step
