@@ -12,8 +12,12 @@
 #include <mavros_msgs/State.h>
 
 #include "sensor_msgs/Imu.h"
+// #include <sensor_msgs/LaserScan.h>
 #include "tf/tf.h"
+#include <angles/angles.h>
 
+#include <sstream>
+#include <fstream>
 #include <math.h>
 #include <cmath>
 
@@ -23,6 +27,9 @@
 #define DELTA_METERS 1.0
 
 #define FLIGHT_ALTITUDE 1.5f
+
+double segment_angle = angles::from_degrees(2.5); // 2.5 degrees
+
 
 mavros_msgs::State current_state;
 
@@ -40,14 +47,60 @@ tf::Quaternion current_qtn;
 geometry_msgs::PoseStamped pose;
 
 
+std::vector<std::string> split_str(const std::string& s, char delimiter) {
+   std::vector<std::string> tokens;
+   std::string token;
+   std::istringstream tokenStream(s);
+   while (std::getline(tokenStream, token, delimiter))
+   {
+      tokens.push_back(token);
+   }
+   return tokens;
+}
+
+
 double getOffset(double x, double y) {
-    double a = -sqrt(3.0) / 3.0;
+    double a = sqrt(3.0) / 3.0;
     double b = 1.0;
     double c = -1.0;
     return (a*x + b*y + c) / sqrt(a*a + b*b);
     
     // return y;
     // return -x;
+}
+
+double getOffset() {
+    std::stringstream ss;
+    std::string line;
+    std::ifstream myfile ("/home/jiangchuan/catkin_ws/src/ai_drone/src/leddar_results.txt");
+    if (myfile.is_open()) {
+      while ( getline (myfile,line) ) {
+        ss << line << '\n';
+      }
+      myfile.close();
+    } else {
+        ss << "Unable to open file";
+    } 
+
+    std::vector<std::string> leddar_records = split_str(ss.str(), '|');
+    double min_dist = 1000.0;
+    int the_seg_num = 0;
+    for (std::vector<std::string>::iterator it = leddar_records.begin() ; it != leddar_records.end(); ++it) {
+        std::vector<std::string> segment_records = split_str(*it, ',');
+
+        double dist = std::stod(segment_records[1]);
+        if (min_dist > dist) {
+            min_dist = dist;
+            the_seg_num = std::stoi(segment_records[0]);
+        }
+    }
+
+    double offset_angle = (3.5 - the_seg_num) * segment_angle;
+    double offset = min_dist * sin(offset_angle);
+    double vertical_dist = min_dist * cos(offset_angle);
+    ROS_INFO("the_seg_num = [%d], min_dist = [%f], offset = [%f], vertical_dist = [%f]", the_seg_num, min_dist, offset, vertical_dist);
+
+    return offset;
 }
 
 
@@ -102,7 +155,7 @@ void compute_waypoint(double dx, double dy, double dz, double droll, double dpit
 
 int main(int argc, char **argv)
 {
-    ros::init(argc, argv, "offb_node");
+    ros::init(argc, argv, "mission_node");
     ros::NodeHandle nh;
 
     ros::Subscriber state_sub = nh.subscribe<mavros_msgs::State>
@@ -182,7 +235,7 @@ int main(int argc, char **argv)
     }
 
     ROS_INFO("going to initial way point =====>");
-    set_waypoint(1.0, 0.0, FLIGHT_ALTITUDE, 0.0, 0.0, 0.0 * M_PI / 180.0);
+    set_waypoint(1.0, 0.0, FLIGHT_ALTITUDE, 0.0, 0.0, -115.0 * M_PI / 180.0);
     for(int i = 0; ros::ok() && i < DELTA_SECONDS * ROS_RATE; ++i){
       local_pos_pub.publish(pose);
       ros::spinOnce();

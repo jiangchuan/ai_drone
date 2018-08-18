@@ -8,6 +8,10 @@ project(ai_drone)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
+  roscpp
+  std_msgs
+  sensor_msgs
+
   mavros
 )
 
@@ -195,6 +199,9 @@ include_directories(
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
+
+add_executable(leddar_publisher src/leddar_publisher.cpp)
+target_link_libraries(leddar_publisher ${catkin_LIBRARIES})
 
 add_executable(mission src/mission.cpp)
 target_link_libraries(mission ${catkin_LIBRARIES})
