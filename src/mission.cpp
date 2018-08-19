@@ -23,6 +23,8 @@
 #include <algorithm>
 
 #define ROS_RATE 20
+#define UPDATE_JUMP 4 // ROS_RATE / UPDATE_JUMP is the pos update rate
+
 #define DELTA_SECONDS_H 10
 #define DELTA_METERS_H 1.0
 #define DELTA_SECONDS_V 10
@@ -146,19 +148,19 @@ void set_waypoint(double x, double y, double z, double roll, double pitch, doubl
     quaternionTFToMsg(current_qtn, pose.pose.orientation);
 }
 
-void compute_waypoint(double dx, double dy, double dz, double droll, double dpitch, double dyaw) {
+void update_position(double dx, double dy, double dz) {
     pose.pose.position.x += dx;
     pose.pose.position.y += dy;
     pose.pose.position.z += dz;
     // ROS_INFO("x = %1.2f, y = %1.2f, z = %1.2f", pose.pose.position.x, pose.pose.position.y, pose.pose.position.z);
+}
 
+void update_orientation(double droll, double dpitch, double dyaw) {
     tf::Quaternion delta_qtn = tf::createQuaternionFromRPY(droll, dpitch, dyaw);
-
     quaternionMsgToTF(current_qtn_msg , current_qtn);
     current_qtn = delta_qtn * current_qtn;
     current_qtn.normalize();
     // ROS_INFO("x = %1.2f, y = %1.2f, z = %1.2f, w = %1.2f", current_qtn.x(), current_qtn.y(), current_qtn.z(), current_qtn.w());
-
     quaternionTFToMsg(current_qtn, pose.pose.orientation);
 }
 
@@ -274,13 +276,28 @@ int main(int argc, char **argv)
             }
         }
 
-        compute_waypoint(dx, dy, dz, 0.0, 0.0, 0.0);
-        for(int i = 0; ros::ok() && i < DELTA_SECONDS_V * ROS_RATE; ++i){
-          local_pos_pub.publish(pose);
-          ros::spinOnce();
-          rate.sleep();
+        // update_position(dx, dy, dz);
+        // for(int i = 0; ros::ok() && i < DELTA_SECONDS_V * ROS_RATE; ++i){
+        //   local_pos_pub.publish(pose);
+        //   ros::spinOnce();
+        //   rate.sleep();
+        // }
+
+        int num_updates = DELTA_SECONDS_V * ROS_RATE / UPDATE_JUMP;
+        double idx = dx / (double) num_updates;
+        double idy = dy / (double) num_updates;
+        double idz = dz / (double) num_updates;
+        for(int i = 0; i < num_updates; i++){
+            update_position(idx, idy, idz);
+            for(int j = 0; ros::ok() && j < UPDATE_JUMP; j++){
+              local_pos_pub.publish(pose);
+              ros::spinOnce();
+              rate.sleep();
+            }
         }
+
     }
+
     getRPY(); // Get yaw
     ROS_INFO("  x = %1.2f, y = %1.2f, z = %1.2f", pose.pose.position.x, pose.pose.position.y, pose.pose.position.z);    
     ROS_INFO("  roll = %1.1f degrees, pitch = %1.1f degrees, yaw = %1.1f degrees", angles::to_degrees(roll), angles::to_degrees(pitch), angles::to_degrees(yaw));    
@@ -306,13 +323,26 @@ int main(int argc, char **argv)
         dy = DELTA_METERS_H * sin(yaw);
         dz = std::min(DELTA_METERS_V, vertical_dist - SAFETY_H);
 
-        compute_waypoint(dx, dy, dz, 0.0, 0.0, 0.0);
-        //send setpoints for 10 seconds
-        for(int i = 0; ros::ok() && i < DELTA_SECONDS_H * ROS_RATE; ++i) {
-            local_pos_pub.publish(pose);
-            ros::spinOnce();
-            rate.sleep();
+        // update_position(dx, dy, dz);
+        // for(int i = 0; ros::ok() && i < DELTA_SECONDS_H * ROS_RATE; ++i) {
+        //     local_pos_pub.publish(pose);
+        //     ros::spinOnce();
+        //     rate.sleep();
+        // }
+
+        int num_updates = DELTA_SECONDS_H * ROS_RATE / UPDATE_JUMP;
+        double idx = dx / (double) num_updates;
+        double idy = dy / (double) num_updates;
+        double idz = dz / (double) num_updates;
+        for(int i = 0; i < num_updates; i++){
+            update_position(idx, idy, idz);
+            for(int j = 0; ros::ok() && j < UPDATE_JUMP; j++){
+              local_pos_pub.publish(pose);
+              ros::spinOnce();
+              rate.sleep();
+            }
         }
+
 
         // getOffset(pose.pose.position.x, pose.pose.position.y);
         getOffset();
@@ -328,14 +358,30 @@ int main(int argc, char **argv)
 
 
         if ((offset > 0.5 * DELTA_METERS_H && offset0 > 0 && offset > offset0) || (offset < -0.5 * DELTA_METERS_H && offset0 < 0 && offset < offset0)) { // on the left of cable
-            // Go back to initial point and restart
-            compute_waypoint(dx, dy, dz, 0.0, 0.0, dyaw); // Go back to cable
-            //send setpoints for 10 seconds
-            for(int i = 0; ros::ok() && i < DELTA_SECONDS_H * ROS_RATE; ++i) {
-                local_pos_pub.publish(pose);
-                ros::spinOnce();
-                rate.sleep();
+            // update_position(dx, dy, dz); // Go back to cable
+            // update_orientation(0.0, 0.0, dyaw);
+            // for(int i = 0; ros::ok() && i < DELTA_SECONDS_H * ROS_RATE; ++i) {
+            //     local_pos_pub.publish(pose);
+            //     ros::spinOnce();
+            //     rate.sleep();
+            // }
+
+            int num_updates = DELTA_SECONDS_H * ROS_RATE / UPDATE_JUMP;
+            double idx = dx / (double) num_updates;
+            double idy = dy / (double) num_updates;
+            double idz = dz / (double) num_updates;
+            double idyaw = dyaw / (double) num_updates;
+            for(int i = 0; i < num_updates; i++){
+                update_position(idx, idy, idz);
+                update_orientation(0.0, 0.0, idyaw);
+                for(int j = 0; ros::ok() && j < UPDATE_JUMP; j++){
+                  local_pos_pub.publish(pose);
+                  ros::spinOnce();
+                  rate.sleep();
+                }
             }
+
+
             continue;
         }
 
@@ -364,14 +410,29 @@ int main(int argc, char **argv)
         double dz = std::min(DELTA_METERS_V, vertical_dist - SAFETY_H);
         double dyaw = alpha_avg - yaw0; // Change this
         ROS_INFO("cable orientation = %1.1f degrees, yaw0 = %1.1f degrees, yaw = %1.1f degrees, delta yaw = %1.1f degrees", angles::to_degrees(alpha_avg), angles::to_degrees(yaw0), angles::to_degrees(yaw), angles::to_degrees(dyaw));
-        // TODO: Added upper limit on dz and dyaw
-        compute_waypoint(dx, dy, dz, 0.0, 0.0, dyaw);
 
-        //send setpoints for 10 seconds
-        for(int i = 0; ros::ok() && i < DELTA_SECONDS_H * ROS_RATE; ++i) {
-            local_pos_pub.publish(pose);
-            ros::spinOnce();
-            rate.sleep();
+        // TODO: Added upper limit on dz and dyaw
+        // update_position(dx, dy, dz);
+        // update_orientation(0.0, 0.0, dyaw);
+        // for(int i = 0; ros::ok() && i < DELTA_SECONDS_H * ROS_RATE; ++i) {
+        //     local_pos_pub.publish(pose);
+        //     ros::spinOnce();
+        //     rate.sleep();
+        // }
+
+        int num_updates = DELTA_SECONDS_H * ROS_RATE / UPDATE_JUMP;
+        double idx = dx / (double) num_updates;
+        double idy = dy / (double) num_updates;
+        double idz = dz / (double) num_updates;
+        double idyaw = dyaw / (double) num_updates;
+        for(int i = 0; i < num_updates; i++){
+            update_position(idx, idy, idz);
+            update_orientation(0.0, 0.0, idyaw);
+            for(int j = 0; ros::ok() && j < UPDATE_JUMP; j++){
+              local_pos_pub.publish(pose);
+              ros::spinOnce();
+              rate.sleep();
+            }
         }
 
         // getOffset(pose.pose.position.x, pose.pose.position.y);
@@ -394,8 +455,7 @@ int main(int argc, char **argv)
 
 
     ROS_INFO("tring to land");
-    while (!(land_client.call(land_cmd) &&
-            land_cmd.response.success)){
+    while (!(land_client.call(land_cmd) && land_cmd.response.success)) {
       //local_pos_pub.publish(pose);
       ROS_INFO("tring to land");
       ros::spinOnce();
