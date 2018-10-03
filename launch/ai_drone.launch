@@ -1,0 +1,4 @@
+<launch>
+    <!-- <include file="$(find mavros)/launch/px4.launch" /> -->
+    <node pkg="ai_drone" type="mission" name="mission_node" output="screen" />
+</launch>
