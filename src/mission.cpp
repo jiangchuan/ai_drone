@@ -33,11 +33,10 @@
 #define SAFETY_H 1.0
 #define FLIGHT_ALTITUDE 1.5f
 
-
 mavros_msgs::State current_state;
-geometry_msgs::Quaternion current_qtn_msg;
-tf::Quaternion current_qtn;
-geometry_msgs::PoseStamped pose;
+// geometry_msgs::Quaternion current_qtn_msg;
+geometry_msgs::Pose pose_in;
+geometry_msgs::PoseStamped pose_stamped;
 
 double x = 0.0, y = 0.0, z = 0.0;
 double roll = 0.0, pitch = 0.0, yaw = 0.0;
@@ -53,7 +52,10 @@ void state_callback(const mavros_msgs::State::ConstPtr &msg)
 
 void local_pos_callback(const geometry_msgs::PoseStamped::ConstPtr &msg)
 {
-    current_qtn_msg = msg->pose.orientation;
+    pose_in = msg->pose;
+
+    // current_qtn_msg = msg->pose.orientation;
+
     // ROS_INFO("Local Pos Seq: [%d]", msg->header.seq);
     // ROS_INFO("Local Pos Position x: [%f], y: [%f], z: [%f]", msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
     // ROS_INFO("Local Pos Orientation x: [%f], y: [%f], z: [%f], w: [%f]", msg->pose.orientation.x, msg->pose.orientation.y, msg->pose.orientation.z, msg->pose.orientation.w);
@@ -132,48 +134,65 @@ bool getOffset()
     return true; // Close enough
 }
 
-void getRPY()
+void getRPY(geometry_msgs::Quaternion qtn_msg)
 {
-    quaternionMsgToTF(current_qtn_msg, current_qtn);
-    current_qtn.normalize();
-    tf::Matrix3x3 m(current_qtn);
+    tf::Quaternion qtn;
+    quaternionMsgToTF(qtn_msg, qtn);
+    qtn.normalize();
+    tf::Matrix3x3 m(qtn);
     m.getRPY(roll, pitch, yaw);
 }
 
 void set_waypoint(double x, double y, double z, double roll, double pitch, double yaw)
 {
-    pose.pose.position.x = x;
-    pose.pose.position.y = y;
-    pose.pose.position.z = z;
-    current_qtn = tf::createQuaternionFromRPY(roll, pitch, yaw);
-    current_qtn.normalize();
-    quaternionTFToMsg(current_qtn, pose.pose.orientation);
+    pose_stamped.pose.position.x = x;
+    pose_stamped.pose.position.y = y;
+    pose_stamped.pose.position.z = z;
+    tf::Quaternion qtn = tf::createQuaternionFromRPY(roll, pitch, yaw);
+    qtn.normalize();
+    quaternionTFToMsg(qtn, pose_stamped.pose.orientation);
 }
 
-void set_waypoint(double x, double y, double z, geometry_msgs::Quaternion qtn_msg)
+void set_waypoint(geometry_msgs::Pose pose)
 {
-    pose.pose.position.x = x;
-    pose.pose.position.y = y;
-    pose.pose.position.z = z;
-    quaternionMsgToTF(qtn_msg, current_qtn);
-    current_qtn.normalize();
-    quaternionTFToMsg(current_qtn, pose.pose.orientation);
+    pose_stamped.pose = pose;
+    // pose_stamped.pose.position.x = x;
+    // pose_stamped.pose.position.y = y;
+    // pose_stamped.pose.position.z = z;
+    // tf::Quaternion qtn;
+    // quaternionMsgToTF(pose.orientation, qtn);
+    // qtn.normalize();
+    // quaternionTFToMsg(qtn, pose_stamped.pose.orientation);
 }
 
 void update_position(double dx, double dy, double dz)
 {
-    pose.pose.position.x += dx;
-    pose.pose.position.y += dy;
-    pose.pose.position.z += dz;
+    pose_stamped.pose.position.x += dx;
+    pose_stamped.pose.position.y += dy;
+    pose_stamped.pose.position.z += dz;
 }
 
-void update_orientation(double droll, double dpitch, double dyaw)
+void update_orientation(geometry_msgs::Quaternion qtn_msg, double droll, double dpitch, double dyaw)
 {
     tf::Quaternion delta_qtn = tf::createQuaternionFromRPY(droll, dpitch, dyaw);
-    quaternionMsgToTF(current_qtn_msg, current_qtn);
-    current_qtn = delta_qtn * current_qtn;
-    current_qtn.normalize();
-    quaternionTFToMsg(current_qtn, pose.pose.orientation);
+    tf::Quaternion qtn;
+    quaternionMsgToTF(qtn_msg, qtn);
+    qtn = delta_qtn * qtn;
+    qtn.normalize();
+    quaternionTFToMsg(qtn, pose_stamped.pose.orientation);
+}
+
+void print_position()
+{
+    ROS_INFO("  x = %1.2f, y = %1.2f, z = %1.2f", pose_stamped.pose.position.x, pose_stamped.pose.position.y, pose_stamped.pose.position.z);
+}
+
+bool no_position_yet()
+{
+    geometry_msgs::Quaternion qtn = pose_in.orientation;
+    // geometry_msgs::Point pt = pose_in.position;
+    // return fabs(qtn.x) + fabs(qtn.y) + fabs(qtn.z) + fabs(qtn.w) + fabs(pt.x) + fabs(pt.y) + fabs(pt.z) < 1e-6;
+    return fabs(qtn.x) + fabs(qtn.y) + fabs(qtn.z) + fabs(qtn.w) < 1e-6;
 }
 
 int main(int argc, char **argv)
@@ -208,25 +227,22 @@ int main(int argc, char **argv)
     // }
     // ros::Duration(5).sleep();
 
-    while (ros::ok() && fabs(current_qtn_msg.x) + fabs(current_qtn_msg.y) + fabs(current_qtn_msg.z) + fabs(current_qtn_msg.w) < 1e-6)
+    while (ros::ok() && no_position_yet())
     {
         ros::spinOnce();
         rate.sleep();
         ROS_INFO("getting local position ...");
     }
 
-    // pose.pose.position.x = 0.0;
-    // pose.pose.position.y = 0.0;
-    // pose.pose.position.z = FLIGHT_ALTITUDE;
-    // quaternionMsgToTF(current_qtn_msg, current_qtn);
-    // current_qtn.normalize();
-    // quaternionTFToMsg(current_qtn, pose.pose.orientation);
-    set_waypoint(0.0, 0.0, FLIGHT_ALTITUDE, current_qtn_msg);
+    // set_waypoint(0.0, 0.0, FLIGHT_ALTITUDE, pose_in);
+    pose_stamped.pose = pose_in;
+    update_position(0.0, 0.0, FLIGHT_ALTITUDE);
+
 
     //send a few setpoints before starting
     for (int i = 100; ros::ok() && i > 0; --i)
     {
-        local_pos_pub.publish(pose);
+        local_pos_pub.publish(pose_stamped);
         ros::spinOnce();
         rate.sleep();
     }
@@ -247,7 +263,7 @@ int main(int argc, char **argv)
             }
             last_request = ros::Time::now();
         }
-        local_pos_pub.publish(pose);
+        local_pos_pub.publish(pose_stamped);
         ros::spinOnce();
         rate.sleep();
     }
@@ -266,7 +282,7 @@ int main(int argc, char **argv)
             }
             last_request = ros::Time::now();
         }
-        local_pos_pub.publish(pose);
+        local_pos_pub.publish(pose_stamped);
         ros::spinOnce();
         rate.sleep();
     }
@@ -285,8 +301,8 @@ int main(int argc, char **argv)
             dz = DELTA_METERS_V;
         }
         else
-        {             // Getting close
-            getRPY(); // Get yaw
+        {                            // Getting close
+            getRPY(pose_in.orientation); // Get yaw
             dx = offset * sin(yaw);
             dy = -offset * cos(yaw);
             ROS_INFO("Getting close, current yaw = %1.1f degrees, dx = %1.1f, dy = %1.1f", angles::to_degrees(yaw), dx, dy);
@@ -305,7 +321,7 @@ int main(int argc, char **argv)
 
         // update_position(dx, dy, dz);
         // for(int i = 0; ros::ok() && i < DELTA_SECONDS_V * ROS_RATE; ++i){
-        //   local_pos_pub.publish(pose);
+        //   local_pos_pub.publish(pose_stamped);
         //   ros::spinOnce();
         //   rate.sleep();
         // }
@@ -319,15 +335,16 @@ int main(int argc, char **argv)
             update_position(idx, idy, idz);
             for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
             {
-                local_pos_pub.publish(pose);
+                print_position();
+                local_pos_pub.publish(pose_stamped);
                 ros::spinOnce();
                 rate.sleep();
             }
         }
     }
 
-    getRPY(); // Get yaw
-    ROS_INFO("  x = %1.2f, y = %1.2f, z = %1.2f", pose.pose.position.x, pose.pose.position.y, pose.pose.position.z);
+    getRPY(pose_in.orientation); // Get yaw
+    ROS_INFO("  x = %1.2f, y = %1.2f, z = %1.2f", pose_stamped.pose.position.x, pose_stamped.pose.position.y, pose_stamped.pose.position.z);
     ROS_INFO("  roll = %1.1f degrees, pitch = %1.1f degrees, yaw = %1.1f degrees", angles::to_degrees(roll), angles::to_degrees(pitch), angles::to_degrees(yaw));
     ROS_INFO("=====> initial way point finished!\n");
 
@@ -340,10 +357,10 @@ int main(int argc, char **argv)
     while (!good_yaw)
     {
         // Initialize
-        // getOffset(pose.pose.position.x, pose.pose.position.y);
+        // getOffset(pose_stamped.pose.position.x, pose_stamped.pose.position.y);
         bool is_close = getOffset();
         offset0 = offset;
-        getRPY(); // Get yaw
+        getRPY(pose_in.orientation); // Get yaw
         ROS_INFO("Current yaw = %1.1f degrees", angles::to_degrees(yaw));
 
         dx = DELTA_METERS_H * cos(yaw);
@@ -352,7 +369,7 @@ int main(int argc, char **argv)
 
         // update_position(dx, dy, dz);
         // for(int i = 0; ros::ok() && i < DELTA_SECONDS_H * ROS_RATE; ++i) {
-        //     local_pos_pub.publish(pose);
+        //     local_pos_pub.publish(pose_stamped);
         //     ros::spinOnce();
         //     rate.sleep();
         // }
@@ -366,13 +383,13 @@ int main(int argc, char **argv)
             update_position(idx, idy, idz);
             for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
             {
-                local_pos_pub.publish(pose);
+                local_pos_pub.publish(pose_stamped);
                 ros::spinOnce();
                 rate.sleep();
             }
         }
 
-        // getOffset(pose.pose.position.x, pose.pose.position.y);
+        // getOffset(pose_stamped.pose.position.x, pose_stamped.pose.position.y);
         getOffset();
         theta0 = asin((offset - offset0) / DELTA_METERS_H);
         alpha = yaw - theta0;
@@ -387,9 +404,9 @@ int main(int argc, char **argv)
         if ((offset > 0.5 * DELTA_METERS_H && offset0 > 0 && offset > offset0) || (offset < -0.5 * DELTA_METERS_H && offset0 < 0 && offset < offset0))
         { // on the left of cable
             // update_position(dx, dy, dz); // Go back to cable
-            // update_orientation(0.0, 0.0, dyaw);
+            // update_orientation(pose_in.orientation, 0.0, 0.0, dyaw);
             // for(int i = 0; ros::ok() && i < DELTA_SECONDS_H * ROS_RATE; ++i) {
-            //     local_pos_pub.publish(pose);
+            //     local_pos_pub.publish(pose_stamped);
             //     ros::spinOnce();
             //     rate.sleep();
             // }
@@ -402,10 +419,10 @@ int main(int argc, char **argv)
             for (int i = 0; i < num_updates; i++)
             {
                 update_position(idx, idy, idz);
-                update_orientation(0.0, 0.0, idyaw);
+                update_orientation(pose_in.orientation, 0.0, 0.0, idyaw);
                 for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
                 {
-                    local_pos_pub.publish(pose);
+                    local_pos_pub.publish(pose_stamped);
                     ros::spinOnce();
                     rate.sleep();
                 }
@@ -420,11 +437,11 @@ int main(int argc, char **argv)
     // Initialize for next step
     double alpha_avg = alpha;
     offset0 = offset;
-    getRPY();
+    getRPY(pose_in.orientation);
     double yaw0 = yaw;
     ROS_INFO("Cable orientation = %1.1f degrees", angles::to_degrees(alpha_avg));
-    getRPY(); // Get yaw
-    ROS_INFO("  x = %1.2f, y = %1.2f, z = %1.2f", pose.pose.position.x, pose.pose.position.y, pose.pose.position.z);
+    getRPY(pose_in.orientation); // Get yaw
+    ROS_INFO("  x = %1.2f, y = %1.2f, z = %1.2f", pose_stamped.pose.position.x, pose_stamped.pose.position.y, pose_stamped.pose.position.z);
     ROS_INFO("  roll = %1.1f degrees, pitch = %1.1f degrees, yaw = %1.1f degrees", angles::to_degrees(roll), angles::to_degrees(pitch), angles::to_degrees(yaw));
     ROS_INFO("=====> way point 0 finished!\n");
 
@@ -441,9 +458,9 @@ int main(int argc, char **argv)
 
         // TODO: Added upper limit on dz and dyaw
         // update_position(dx, dy, dz);
-        // update_orientation(0.0, 0.0, dyaw);
+        // update_orientation(pose_in.orientation, 0.0, 0.0, dyaw);
         // for(int i = 0; ros::ok() && i < DELTA_SECONDS_H * ROS_RATE; ++i) {
-        //     local_pos_pub.publish(pose);
+        //     local_pos_pub.publish(pose_stamped);
         //     ros::spinOnce();
         //     rate.sleep();
         // }
@@ -456,16 +473,16 @@ int main(int argc, char **argv)
         for (int i = 0; i < num_updates; i++)
         {
             update_position(idx, idy, idz);
-            update_orientation(0.0, 0.0, idyaw);
+            update_orientation(pose_in.orientation, 0.0, 0.0, idyaw);
             for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
             {
-                local_pos_pub.publish(pose);
+                local_pos_pub.publish(pose_stamped);
                 ros::spinOnce();
                 rate.sleep();
             }
         }
 
-        // getOffset(pose.pose.position.x, pose.pose.position.y);
+        // getOffset(pose_stamped.pose.position.x, pose_stamped.pose.position.y);
         getOffset();
         double theta0 = asin((offset - offset0) / DELTA_METERS_H);
         ROS_INFO("offset0 = %1.2f, offset = %1.2f", offset0, offset);
@@ -475,10 +492,10 @@ int main(int argc, char **argv)
         // Initialize for next step
         alpha_avg = alpha * lambda + alpha_avg * (1 - lambda);
         offset0 = offset;
-        getRPY();
+        getRPY(pose_in.orientation);
         yaw0 = yaw;
-        getRPY(); // Get yaw
-        ROS_INFO("  x = %1.2f, y = %1.2f, z = %1.2f", pose.pose.position.x, pose.pose.position.y, pose.pose.position.z);
+        getRPY(pose_in.orientation); // Get yaw
+        ROS_INFO("  x = %1.2f, y = %1.2f, z = %1.2f", pose_stamped.pose.position.x, pose_stamped.pose.position.y, pose_stamped.pose.position.z);
         ROS_INFO("  roll = %1.1f degrees, pitch = %1.1f degrees, yaw = %1.1f degrees", angles::to_degrees(roll), angles::to_degrees(pitch), angles::to_degrees(yaw));
         ROS_INFO("=====> way point %d finished!\n", iwp);
     }
@@ -500,7 +517,7 @@ int main(int argc, char **argv)
             }
             last_request = ros::Time::now();
         }
-        local_pos_pub.publish(pose);
+        local_pos_pub.publish(pose_stamped);
         ros::spinOnce();
         rate.sleep();
     }
