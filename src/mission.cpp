@@ -138,51 +138,75 @@ bool getOffset()
 
 bool getOffset(double yaw, double x, double y, double z, double a, double b, double c, double xm, double ym)
 {
-    // ROS_INFO("current position x = %f, y = %f, z = %f", x, y, z);
+    ROS_INFO("  ==> Enter getOffset");
     double can_a = 8.0;
     double can_c = 50.0;
-
     double square_sum = a * a + b * b;
 
     // if (a < 0.0 || (a == 0.0 && b > 0.0))
     // {
+    //     ROS_INFO("Change sign for a, b ,c");
     //     a = -a;
     //     b = -b;
     //     c = -c;
     // }
 
     offset = fabs(a * x + b * y + c) / sqrt(square_sum);
-
-    if (yaw >= M_PI)
+    if (b == 0.0)
     {
-        yaw -= 2 * M_PI;
-    }
-
-    if (b == 0)
-    {
-        if (yaw > M_PI / 2.0 || (yaw > -M_PI / 2.0 && yaw < 0.0))
+        if (x > -c / a)
         {
             offset = -offset;
         }
     }
     else
     {
-        double line_angle = atan(-a / b);
-        if (yaw < line_angle - M_PI / 2.0 || (yaw > line_angle && yaw < line_angle + M_PI / 2.0))
+        if (y < -a * x / b - c / b)
         {
             offset = -offset;
         }
     }
 
+    ROS_INFO("raw offset = %1.2f", offset);
+
+    if (yaw >= M_PI)
+    {
+        yaw -= 2 * M_PI;
+    }
+
+    if (b == 0.0)
+    {
+        // if (yaw > M_PI / 2.0 || (yaw > -M_PI / 2.0 && yaw < 0.0))
+        // if (yaw < 0.0)
+        if (yaw > 0.0)
+        {
+            offset = -offset;
+            ROS_INFO("Reverse direction");
+        }
+        // offset /= fabs(sin(yaw));
+    }
+    else
+    {
+        double line_angle = atan(-a / b);
+        // if (yaw < line_angle - M_PI / 2.0 || (yaw > line_angle && yaw < line_angle + M_PI / 2.0))
+        // if (yaw < line_angle - M_PI / 2.0 || yaw > line_angle + M_PI / 2.0)
+        if (yaw > line_angle - M_PI / 2.0 && yaw < line_angle + M_PI / 2.0)
+        {
+            offset = -offset;
+            ROS_INFO("Reverse direction");
+        }
+        // offset /= fabs(cos(line_angle - yaw));
+    }
+
     double xproj = (b * (b * x - a * y) - a * c) / square_sum;
     double yproj = (a * (-b * x + a * y) - b * c) / square_sum;
-
     double u = sqrt((xproj - xm) * (xproj - xm) + (yproj - ym) * (yproj - ym));
-
-    ROS_INFO("current position x = %f, y = %f, z = %f, xm = %f, ym = %f, u = %f", x, y, z, xm, ym, u);
+    ROS_INFO("current position x = %1.2f, y = %1.2f, z = %1.2f, xm = %1.2f, ym = %1.2f, u = %1.2f", x, y, z, xm, ym, u);
 
     vertical_dist = can_a + can_c * (cosh(u / can_c) - 1) - z;
-    ROS_INFO("offset = %f, vertical_dist = %f", offset, vertical_dist);
+    ROS_INFO("offset = %1.2f, vertical_dist = %1.2f", offset, vertical_dist);
+    ROS_INFO("  Leave getOffset ==>");
+
     if (vertical_dist > LEDDAR_RANGE)
     { // Too far
         return false;
@@ -284,15 +308,15 @@ int main(int argc, char **argv)
     // double x0 = pose_in.position.x;
     // double y0 = pose_in.position.y;
     // getRPY(pose_in.orientation);                 // Get yaw
-    // double alpha0 = angles::from_degrees(-20.0); // 20 degrees
-    // double theta_wire = yaw + alpha0;
+    // double theta0 = angles::from_degrees(-20.0); // 20 degrees
+    // double alpha_wire = yaw + theta0;
     // double half_wire_length = 10.0;
     // double xm = x0 + half_wire_length * cos(yaw);
     // double ym = y0 + half_wire_length * sin(yaw);
     // // line: ax + by + c = 0
-    // double line_a = sin(theta_wire);
-    // double line_b = -cos(theta_wire);
-    // double line_c = ym * cos(theta_wire) - xm * sin(theta_wire);
+    // double line_a = sin(alpha_wire);
+    // double line_b = -cos(alpha_wire);
+    // double line_c = ym * cos(alpha_wire) - xm * sin(alpha_wire);
     // // Wire simulation ends
 
     pose_stamped.pose = pose_in;
@@ -357,7 +381,7 @@ int main(int argc, char **argv)
     double idy = 0.0 / (double)num_updates;
     double idz = DELTA_METERS_V / (double)num_updates;
     // double idyaw = M_PI / 2.0 / (double)num_updates;
-    update_orientation(pose_in.orientation, 0.0, 0.0, 0.0 * M_PI / 2.0);
+    update_orientation(pose_in.orientation, 0.0, 0.0, 1.0 * M_PI / 2.0);
     for (int i = 0; i < num_updates; i++)
     {
         update_position(idx, idy, idz);
@@ -370,18 +394,20 @@ int main(int argc, char **argv)
     }
     double x0 = pose_in.position.x;
     double y0 = pose_in.position.y;
-    getRPY(pose_in.orientation);                // Get yaw
-    double alpha0 = angles::from_degrees(40.0); // 20 degrees
-    double theta_wire = yaw + alpha0;
-    ROS_INFO("theta_wire = %1.1f degrees", angles::to_degrees(theta_wire));
+    getRPY(pose_in.orientation);                 // Get yaw
+    double theta0 = angles::from_degrees(40.0); // 20 degrees
+    double alpha_wire = yaw + theta0;
+    ROS_INFO("  >>> True cable orientation = %1.1f degrees", angles::to_degrees(alpha_wire));
 
     double half_wire_length = 10.0;
     double xm = x0 + half_wire_length * cos(yaw);
     double ym = y0 + half_wire_length * sin(yaw);
     // line: ax + by + c = 0
-    double line_a = sin(theta_wire);
-    double line_b = -cos(theta_wire);
-    double line_c = ym * cos(theta_wire) - xm * sin(theta_wire);
+    double line_a = sin(alpha_wire);
+    double line_b = -cos(alpha_wire);
+    double line_c = ym * cos(alpha_wire) - xm * sin(alpha_wire);
+    ROS_INFO("  line_a = %1.2f, line_b = %1.2f, line_c = %1.2f", line_a, line_b, line_c);
+
     // Wire simulation ends
 
     /* 
@@ -393,7 +419,7 @@ int main(int argc, char **argv)
     int num_trial = 0;
     while (!good_initial)
     {
-        if (num_trial > 50)
+        if (num_trial > 100)
         {
             ROS_INFO("tring to land");
             while (ros::ok())
@@ -415,7 +441,6 @@ int main(int argc, char **argv)
         }
         num_trial++;
 
-        // bool in_ladar_range = getOffset();
         bool in_ladar_range = getOffset(yaw, pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
 
         if (!in_ladar_range)
@@ -428,8 +453,8 @@ int main(int argc, char **argv)
         else
         {                                // Getting close vertically
             getRPY(pose_in.orientation); // Get yaw
-            dx = offset * sin(yaw);
-            dy = -offset * cos(yaw);
+            dx = -offset * sin(yaw);
+            dy = offset * cos(yaw);
 
             double shrink_ratio = DELTA_METERS_H / fabs(offset);
             if (shrink_ratio < 1.0)
@@ -456,13 +481,6 @@ int main(int argc, char **argv)
             }
         }
 
-        // update_position(dx, dy, dz);
-        // for(int i = 0; ros::ok() && i < DELTA_SECONDS_V * ROS_RATE; ++i){
-        //   local_pos_pub.publish(pose_stamped);
-        //   ros::spinOnce();
-        //   rate.sleep();
-        // }
-
         int num_updates = DELTA_SECONDS_V * ROS_RATE / UPDATE_JUMP;
         double idx = dx / (double)num_updates;
         double idy = dy / (double)num_updates;
@@ -487,13 +505,13 @@ int main(int argc, char **argv)
     ROS_INFO("going to way point 0 =====>");
     // No need to adjust in the first step
     double offset0 = 0.0;
-    double theta0 = 0.0, alpha = 0.0;
+    double alpha = 0.0;
     bool good_yaw = false;
 
     num_trial = 0;
     while (!good_yaw)
     {
-        if (num_trial > 50)
+        if (num_trial > 100)
         {
             ROS_INFO("tring to land");
             while (ros::ok())
@@ -516,10 +534,7 @@ int main(int argc, char **argv)
         num_trial++;
 
         // Initialize
-        // getOffset(pose_stamped.pose.position.x, pose_stamped.pose.position.y);
-        // getOffset();
         getOffset(yaw, pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
-
         offset0 = offset;
         getRPY(pose_in.orientation); // Get yaw
         ROS_INFO("  Current yaw = %1.1f degrees", angles::to_degrees(yaw));
@@ -527,13 +542,6 @@ int main(int argc, char **argv)
         dx = DELTA_METERS_H * cos(yaw);
         dy = DELTA_METERS_H * sin(yaw);
         dz = std::min(DELTA_METERS_V, vertical_dist - SAFETY_H);
-
-        // update_position(dx, dy, dz);
-        // for(int i = 0; ros::ok() && i < DELTA_SECONDS_H * ROS_RATE; ++i) {
-        //     local_pos_pub.publish(pose_stamped);
-        //     ros::spinOnce();
-        //     rate.sleep();
-        // }
 
         int num_updates = DELTA_SECONDS_H * ROS_RATE / UPDATE_JUMP;
         double idx = dx / (double)num_updates;
@@ -550,30 +558,19 @@ int main(int argc, char **argv)
             }
         }
 
-        // getOffset(pose_stamped.pose.position.x, pose_stamped.pose.position.y);
-        // getOffset();
         getOffset(yaw, pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
-
         theta0 = asin((offset - offset0) / DELTA_METERS_H);
-        alpha = yaw - theta0;
-        ROS_INFO("  yaw = %1.1f degrees, theta0 = %1.1f degrees, alpha = %1.1f degrees", angles::to_degrees(yaw), angles::to_degrees(theta0), angles::to_degrees(alpha));
-        ROS_INFO("  offset0 = %1.2f, offset = %1.2f, yaw = %1.1f degrees", offset0, offset, angles::to_degrees(yaw));
+        alpha = yaw + theta0; // alpha is the orientation of the wire
+        ROS_INFO("  >>> cable orientation = %1.1f degrees, yaw = %1.1f degrees, theta0 = %1.1f degrees", angles::to_degrees(alpha), angles::to_degrees(yaw), angles::to_degrees(theta0));
+        ROS_INFO("  offset0 = %1.2f, offset = %1.2f", offset0, offset);
 
-        dx = offset * sin(alpha);
-        dy = -offset * cos(alpha);
+        dx = -offset * sin(alpha);
+        dy = offset * cos(alpha);
         dz = std::min(DELTA_METERS_V, vertical_dist - SAFETY_H);
         double dyaw = alpha - yaw; // Change this
 
         if ((offset > 0.5 * DELTA_METERS_H && offset0 > 0 && offset > offset0) || (offset < -0.5 * DELTA_METERS_H && offset0 < 0 && offset < offset0))
-        { // on the left of cable
-            // update_position(dx, dy, dz); // Go back to cable
-            // update_orientation(pose_in.orientation, 0.0, 0.0, dyaw);
-            // for(int i = 0; ros::ok() && i < DELTA_SECONDS_H * ROS_RATE; ++i) {
-            //     local_pos_pub.publish(pose_stamped);
-            //     ros::spinOnce();
-            //     rate.sleep();
-            // }
-
+        {
             int num_updates = DELTA_SECONDS_H * ROS_RATE / UPDATE_JUMP;
             double idx = dx / (double)num_updates;
             double idy = dy / (double)num_updates;
@@ -603,7 +600,7 @@ int main(int argc, char **argv)
     offset0 = offset;
     getRPY(pose_in.orientation); // Get yaw
     double yaw0 = yaw;
-    ROS_INFO("Cable orientation = %1.1f degrees", angles::to_degrees(alpha_avg));
+    ROS_INFO("  >>> cable orientation = %1.1f degrees", angles::to_degrees(alpha_avg));
     print_position("=====> way point 0 finished!");
 
     /* 
@@ -613,22 +610,19 @@ int main(int argc, char **argv)
     {
         ROS_INFO("going to way point %d =====>", iwp);
         ROS_INFO("  Current yaw = %1.1f degrees", angles::to_degrees(yaw));
-        yaw = alpha_avg + asin(-offset / DELTA_METERS_H); // Adjust yaw
-        double dx = DELTA_METERS_H * cos(yaw);
-        double dy = DELTA_METERS_H * sin(yaw);
+        ROS_INFO("  offset = %1.1f", offset);
+
+        // double omega = alpha_avg + asin(offset / DELTA_METERS_H);
+        double omega = alpha_wire + asin(offset / DELTA_METERS_H);
+        double dx = DELTA_METERS_H * cos(omega);
+        double dy = DELTA_METERS_H * sin(omega);
         double dz = std::min(DELTA_METERS_V, vertical_dist - SAFETY_H);
-        double dyaw = alpha_avg - yaw0; // Change this
-        ROS_INFO("  cable orientation = %1.1f degrees, yaw0 = %1.1f degrees, yaw = %1.1f degrees, delta yaw = %1.1f degrees", angles::to_degrees(alpha_avg), angles::to_degrees(yaw0), angles::to_degrees(yaw), angles::to_degrees(dyaw));
+        // double dyaw = alpha_avg - yaw0; // Change this
+        double dyaw = alpha_wire - yaw0; // Change this
+        // ROS_INFO("  cable orientation = %1.1f degrees, yaw0 = %1.1f degrees, yaw = %1.1f degrees, delta yaw = %1.1f degrees", angles::to_degrees(alpha_avg), angles::to_degrees(yaw0), angles::to_degrees(yaw), angles::to_degrees(dyaw));
+        ROS_INFO("  cable orientation = %1.1f degrees, yaw0 = %1.1f degrees, yaw = %1.1f degrees, delta yaw = %1.1f degrees", angles::to_degrees(alpha_wire), angles::to_degrees(yaw0), angles::to_degrees(yaw), angles::to_degrees(dyaw));
 
         // TODO: Added upper limit on dz and dyaw
-        // update_position(dx, dy, dz);
-        // update_orientation(pose_in.orientation, 0.0, 0.0, dyaw);
-        // for(int i = 0; ros::ok() && i < DELTA_SECONDS_H * ROS_RATE; ++i) {
-        //     local_pos_pub.publish(pose_stamped);
-        //     ros::spinOnce();
-        //     rate.sleep();
-        // }
-
         int num_updates = DELTA_SECONDS_H * ROS_RATE / UPDATE_JUMP;
         double idx = dx / (double)num_updates;
         double idy = dy / (double)num_updates;
@@ -647,13 +641,11 @@ int main(int argc, char **argv)
             }
         }
 
-        // getOffset(pose_stamped.pose.position.x, pose_stamped.pose.position.y);
-        // getOffset();
         getOffset(yaw, pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
 
         double theta0 = asin((offset - offset0) / DELTA_METERS_H);
         ROS_INFO("  offset0 = %1.2f, offset = %1.2f", offset0, offset);
-        double alpha = yaw - theta0;
+        double alpha = yaw + theta0;
         ROS_INFO("  yaw = %1.1f degrees, theta0 = %1.1f degrees, alpha = %1.1f degrees", angles::to_degrees(yaw), angles::to_degrees(theta0), angles::to_degrees(alpha));
 
         // Initialize for next step
@@ -661,10 +653,6 @@ int main(int argc, char **argv)
         offset0 = offset;
         getRPY(pose_in.orientation); // Get yaw
         yaw0 = yaw;
-        // ROS_INFO("  x = %1.2f, y = %1.2f, z = %1.2f", pose_stamped.pose.position.x, pose_stamped.pose.position.y, pose_stamped.pose.position.z);
-        // ROS_INFO("  roll = %1.1f degrees, pitch = %1.1f degrees, yaw = %1.1f degrees", angles::to_degrees(roll), angles::to_degrees(pitch), angles::to_degrees(yaw));
-        // ROS_INFO("=====> way point %d finished!\n", iwp);
-
         std::string pos_header = "=====> way point " + std::to_string(iwp) + " finished!";
         print_position(pos_header);
     }
