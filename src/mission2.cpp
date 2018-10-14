@@ -121,21 +121,11 @@ bool get_offset()
     return true; // Close enough
 }
 
-double within_negative_pi_pi(double ang)
+double regularize_angle(double ang)
 {
-    ang = remainder(ang, 2 * M_PI);
-    // if (ang == M_PI)
-    // {
-    //     ang = -M_PI;
-    // }
-    return ang;
-}
-
-double regularize_0_pi(double ang)
-{
-    if (ang < 0.0)
+    if (ang > M_PI)
     {
-        ang += M_PI;
+        ang -= 2 * M_PI;
     }
     return ang;
 }
@@ -162,7 +152,7 @@ bool get_offset(double yaw, double x, double y, double z, double a, double b, do
         }
     }
 
-    yaw = within_negative_pi_pi(yaw);
+    yaw = regularize_angle(yaw);
     if (b == 0.0)
     {
         if (yaw > 0.0)
@@ -174,7 +164,7 @@ bool get_offset(double yaw, double x, double y, double z, double a, double b, do
     else
     {
         double line_angle = atan(-a / b);
-        if (yaw > line_angle - M_PI_2 && yaw < line_angle + M_PI_2)
+        if (yaw > line_angle - M_PI / 2.0 && yaw < line_angle + M_PI / 2.0)
         {
             offset = -offset;
         }
@@ -196,45 +186,6 @@ bool get_offset(double yaw, double x, double y, double z, double a, double b, do
 double get_vertical_offset(double offset, double yaw, double line_angle)
 {
     return offset * fabs(cos(line_angle - yaw));
-}
-
-bool subsample(int ll, int ss, int selected[], bool reverse)
-{
-    double jump = (double)ll / (double)ss;
-    double sum = jump;
-    int ll_1 = ll - 1;
-    if (reverse)
-    {
-        selected[0] = ll_1;
-    }
-    else
-    {
-        selected[0] = 0;
-    }
-    std::cout << selected[0] << ", ";
-    int is = 1;
-    for (int il = 1; il < ll; il++)
-    {
-        if (sum <= (double)il)
-        {
-            if (reverse)
-            {
-                selected[is] = ll_1 - il;
-            }
-            else
-            {
-                selected[is] = il;
-            }
-            std::cout << selected[is] << ", ";
-            is++;
-            sum += jump;
-        }
-    }
-    if (is == ss)
-    {
-        return true;
-    }
-    return false;
 }
 
 double get_average(double arr[], int size)
@@ -435,7 +386,7 @@ int main(int argc, char **argv)
     double sidx = 0.0 / (double)snum_updates;
     double sidy = 0.0 / (double)snum_updates;
     double sidz = DELTA_METERS_V / (double)snum_updates;
-    update_orientation(pose_in.orientation, 0.0, 0.0, 0.0 * M_PI_2);
+    update_orientation(pose_in.orientation, 0.0, 0.0, 2.0 * M_PI / 2.0);
     for (int i = 0; i < snum_updates; i++)
     {
         update_position(sidx, sidy, sidz);
@@ -449,9 +400,9 @@ int main(int argc, char **argv)
     double x0 = pose_in.position.x;
     double y0 = pose_in.position.y;
     getRPY(pose_in.orientation);               // Get yaw
-    double theta = angles::from_degrees(30.0); // 20 degrees
+    double theta = angles::from_degrees(40.0); // 20 degrees
     double alpha_wire = yaw + theta;
-    alpha_wire = regularize_0_pi(within_negative_pi_pi(alpha_wire));
+    alpha_wire = regularize_angle(alpha_wire);
     ROS_INFO("  >>> START yaw = %1.1f degrees", angles::to_degrees(yaw));
     ROS_INFO("  >>> TRUE cable orientation = %1.1f degrees", angles::to_degrees(alpha_wire));
 
@@ -567,7 +518,6 @@ int main(int argc, char **argv)
     dz = std::min(DELTA_METERS_V, vertical_dist - SAFETY_H);
 
     int num_updates = DELTA_SECONDS_H * ROS_RATE / UPDATE_JUMP;
-    int subindex[LEAST_SQUARE_LEN];
     double xarr[LEAST_SQUARE_LEN];
     double yarr[LEAST_SQUARE_LEN];
     double idx = dx / (double)num_updates;
@@ -583,8 +533,12 @@ int main(int argc, char **argv)
         double curry = pose_in.position.y;
         double currz = pose_in.position.z;
         get_offset(yaw, currx, curry, currz, line_a, line_b, line_c, xm, ym);
+
+        // xarr[i] = currx - offset * sin(yaw);
+        // yarr[i] = curry + offset * cos(yaw);
         xvec.push_back(currx - offset * sin(yaw));
         yvec.push_back(curry + offset * cos(yaw));
+
         update_position(idx, idy, idz);
         for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
         {
@@ -600,30 +554,28 @@ int main(int argc, char **argv)
     {
         arr_size = vec_size;
     }
-    bool success = subsample(vec_size, arr_size, subindex, true);
-    std::cout << " subsample is successful: " << success << std::endl;
-    for (int i = 0; i < arr_size; i++)
+
+    int cood_jump = vec_size / arr_size;
+    std::cout << "vec_size = " << vec_size << ", arr_size = " << arr_size << ", cood_jump = " << cood_jump << std::endl;
+
+    for (int i = vec_size - 1, j = 0; j < arr_size; i -= cood_jump, j++)
     {
-        int index = subindex[i];
-        xarr[i] = xvec[index];
-        yarr[i] = yvec[index];
-        std::cout << "xarr[i] = " << xarr[i] << ", yarr[i] = " << yarr[i] << std::endl;
+        xarr[j] = xvec[i];
+        yarr[j] = yvec[i];
+        std::cout << "xarr[j] = " << xarr[j] << ", yarr[j] = " << yarr[j] << std::endl;
     }
     double xavg = get_average(xarr, arr_size);
     double yavg = get_average(yarr, arr_size);
     double sum_de = get_square_sum(xarr, xavg, arr_size);
     if (sum_de < 1e-6)
     {
-        alpha = M_PI_2;
+        alpha = M_PI / 2.0;
     }
     else
     {
         double sum_nu = get_cross_sum(xarr, xavg, yarr, yavg, arr_size);
-        std::cout << "sum_nu = " << sum_nu << ", sum_de = " << sum_de << std::endl;
         alpha = atan(sum_nu / sum_de);
-        std::cout << "alpha from tan = " << alpha << std::endl;
     }
-    alpha = regularize_0_pi(alpha);
 
     // Initialize for next step
     double alpha_avg = alpha;
@@ -642,7 +594,6 @@ int main(int argc, char **argv)
     {
         ROS_INFO("=====> going to way point %d", iwp);
         double vertical_offset = get_vertical_offset(offset0, yaw0, alpha_avg);
-        std::cout << "offset0 = " << offset0 << ", yaw0 = " << yaw0 << ", alpha_avg = " << alpha_avg << ", vertical_offset = " << vertical_offset << std::endl;
         double omega = alpha_avg + asin(vertical_offset / DELTA_METERS_H);
         double dx = DELTA_METERS_H * cos(omega);
         double dy = DELTA_METERS_H * sin(omega);
@@ -660,8 +611,12 @@ int main(int argc, char **argv)
             double curry = pose_in.position.y;
             double currz = pose_in.position.z;
             get_offset(yaw, currx, curry, currz, line_a, line_b, line_c, xm, ym);
+
+            // xarr[i] = currx - offset * sin(yaw);
+            // yarr[i] = curry + offset * cos(yaw);
             xvec.push_back(currx - offset * sin(yaw));
             yvec.push_back(curry + offset * cos(yaw));
+
             update_position(idx, idy, idz);
             for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
             {
@@ -677,30 +632,29 @@ int main(int argc, char **argv)
         {
             arr_size = vec_size;
         }
-        bool success = subsample(vec_size, arr_size, subindex, true);
-        std::cout << " subsample is successful: " << success << std::endl;
-        for (int i = 0; i < arr_size; i++)
+
+        int cood_jump = vec_size / arr_size;
+        std::cout << "vec_size = " << vec_size << ", arr_size = " << arr_size << ", cood_jump = " << cood_jump << std::endl;
+
+        for (int i = vec_size - 1, j = 0; j < arr_size; i -= cood_jump, j++)
         {
-            int index = subindex[i];
-            xarr[i] = xvec[index];
-            yarr[i] = yvec[index];
-            std::cout << "xarr[i] = " << xarr[i] << ", yarr[i] = " << yarr[i] << std::endl;
+            xarr[j] = xvec[i];
+            yarr[j] = yvec[i];
+            std::cout << "xarr[j] = " << xarr[j] << ", yarr[j] = " << yarr[j] << std::endl;
         }
         double xavg = get_average(xarr, arr_size);
         double yavg = get_average(yarr, arr_size);
         double sum_de = get_square_sum(xarr, xavg, arr_size);
         if (sum_de < 1e-6)
         {
-            alpha = M_PI_2;
+            alpha = M_PI / 2.0;
         }
         else
         {
             double sum_nu = get_cross_sum(xarr, xavg, yarr, yavg, arr_size);
-            std::cout << "sum_nu = " << sum_nu << ", sum_de = " << sum_de << std::endl;
             alpha = atan(sum_nu / sum_de);
-            std::cout << "alpha from tan = " << alpha << std::endl;
         }
-        alpha = regularize_0_pi(alpha);
+
         print_state_change(yaw0, yaw, offset0, offset, alpha, alpha - yaw);
 
         // Initialize for next step
