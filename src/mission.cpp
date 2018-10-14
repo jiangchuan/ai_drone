@@ -198,7 +198,7 @@ double get_vertical_offset(double offset, double yaw, double line_angle)
     return offset * fabs(cos(line_angle - yaw));
 }
 
-bool subsample(int ll, int ss, int selected[], bool reverse)
+bool subsample_index(int ll, int ss, int selected[], bool reverse)
 {
     double jump = (double)ll / (double)ss;
     double sum = jump;
@@ -211,7 +211,7 @@ bool subsample(int ll, int ss, int selected[], bool reverse)
     {
         selected[0] = 0;
     }
-    std::cout << selected[0] << ", ";
+    // std::cout << selected[0] << ", ";
     int is = 1;
     for (int il = 1; il < ll; il++)
     {
@@ -225,7 +225,7 @@ bool subsample(int ll, int ss, int selected[], bool reverse)
             {
                 selected[is] = il;
             }
-            std::cout << selected[is] << ", ";
+            // std::cout << selected[is] << ", ";
             is++;
             sum += jump;
         }
@@ -235,6 +235,25 @@ bool subsample(int ll, int ss, int selected[], bool reverse)
         return true;
     }
     return false;
+}
+
+int subsample(const std::vector<double> &xvec, const std::vector<double> &yvec, double xarr[], double yarr[], int subindex[])
+{
+    int vec_size = xvec.size();
+    int arr_size = LEAST_SQUARE_LEN;
+    if (vec_size <= LEAST_SQUARE_LEN)
+    {
+        arr_size = vec_size;
+    }
+    bool success = subsample_index(vec_size, arr_size, subindex, true);
+    for (int i = 0; i < arr_size; i++)
+    {
+        int index = subindex[i];
+        xarr[i] = xvec[index];
+        yarr[i] = yvec[index];
+        // std::cout << "xarr[i] = " << xarr[i] << ", yarr[i] = " << yarr[i] << std::endl;
+    }
+    return arr_size;
 }
 
 double get_average(double arr[], int size)
@@ -566,17 +585,15 @@ int main(int argc, char **argv)
     dy = DELTA_METERS_H * sin(yaw);
     dz = std::min(DELTA_METERS_V, vertical_dist - SAFETY_H);
 
-    int num_updates = DELTA_SECONDS_H * ROS_RATE / UPDATE_JUMP;
+    std::vector<double> xvec;
+    std::vector<double> yvec;
     int subindex[LEAST_SQUARE_LEN];
     double xarr[LEAST_SQUARE_LEN];
     double yarr[LEAST_SQUARE_LEN];
+    int num_updates = DELTA_SECONDS_H * ROS_RATE / UPDATE_JUMP;
     double idx = dx / (double)num_updates;
     double idy = dy / (double)num_updates;
     double idz = dz / (double)num_updates;
-
-    std::vector<double> xvec;
-    std::vector<double> yvec;
-
     for (int i = 0; i < num_updates; i++)
     {
         double currx = pose_in.position.x;
@@ -593,22 +610,7 @@ int main(int argc, char **argv)
             rate.sleep();
         }
     }
-
-    int vec_size = xvec.size();
-    int arr_size = LEAST_SQUARE_LEN;
-    if (vec_size <= LEAST_SQUARE_LEN)
-    {
-        arr_size = vec_size;
-    }
-    bool success = subsample(vec_size, arr_size, subindex, true);
-    std::cout << " subsample is successful: " << success << std::endl;
-    for (int i = 0; i < arr_size; i++)
-    {
-        int index = subindex[i];
-        xarr[i] = xvec[index];
-        yarr[i] = yvec[index];
-        std::cout << "xarr[i] = " << xarr[i] << ", yarr[i] = " << yarr[i] << std::endl;
-    }
+    int arr_size = subsample(xvec, yvec, xarr, yarr, subindex);
     double xavg = get_average(xarr, arr_size);
     double yavg = get_average(yarr, arr_size);
     double sum_de = get_square_sum(xarr, xavg, arr_size);
@@ -619,9 +621,7 @@ int main(int argc, char **argv)
     else
     {
         double sum_nu = get_cross_sum(xarr, xavg, yarr, yavg, arr_size);
-        std::cout << "sum_nu = " << sum_nu << ", sum_de = " << sum_de << std::endl;
         alpha = atan(sum_nu / sum_de);
-        std::cout << "alpha from tan = " << alpha << std::endl;
     }
     alpha = regularize_0_pi(alpha);
 
@@ -642,10 +642,40 @@ int main(int argc, char **argv)
     {
         ROS_INFO("=====> going to way point %d", iwp);
         double vertical_offset = get_vertical_offset(offset0, yaw0, alpha_avg);
-        std::cout << "offset0 = " << offset0 << ", yaw0 = " << yaw0 << ", alpha_avg = " << alpha_avg << ", vertical_offset = " << vertical_offset << std::endl;
-        double omega = alpha_avg + asin(vertical_offset / DELTA_METERS_H);
-        double dx = DELTA_METERS_H * cos(omega);
-        double dy = DELTA_METERS_H * sin(omega);
+        double diagonal_length = DELTA_METERS_H;
+        if (vertical_offset > DELTA_METERS_H)
+        {
+            if (vertical_offset <= 2 * DELTA_METERS_H)
+            {
+                ROS_INFO("WARRING: vertical_offset > DELTA_METERS_H but <= 2 * DELTA_METERS_H");
+                diagonal_length *= 2;
+            }
+            else
+            {
+                ROS_INFO("ERROR: vertical_offset > 2 * DELTA_METERS_H");
+                ROS_INFO("tring to land");
+                while (ros::ok())
+                {
+                    if (ros::Time::now() - last_request > ros::Duration(5.0))
+                    {
+                        if (land_client.call(land_cmd) && land_cmd.response.success)
+                        {
+                            ROS_INFO("Landing");
+                            break;
+                        }
+                        last_request = ros::Time::now();
+                    }
+                    local_pos_pub.publish(pose_stamped);
+                    ros::spinOnce();
+                    rate.sleep();
+                }
+                return 0;
+            }
+        }
+
+        double omega = alpha_avg + asin(vertical_offset / diagonal_length);
+        double dx = diagonal_length * cos(omega);
+        double dy = diagonal_length * sin(omega);
         double dz = std::min(DELTA_METERS_V, vertical_dist - SAFETY_H);
         double dyaw = alpha_avg - yaw0; // Change this
 
@@ -670,22 +700,7 @@ int main(int argc, char **argv)
                 rate.sleep();
             }
         }
-
-        int vec_size = xvec.size();
-        int arr_size = LEAST_SQUARE_LEN;
-        if (vec_size <= LEAST_SQUARE_LEN)
-        {
-            arr_size = vec_size;
-        }
-        bool success = subsample(vec_size, arr_size, subindex, true);
-        std::cout << " subsample is successful: " << success << std::endl;
-        for (int i = 0; i < arr_size; i++)
-        {
-            int index = subindex[i];
-            xarr[i] = xvec[index];
-            yarr[i] = yvec[index];
-            std::cout << "xarr[i] = " << xarr[i] << ", yarr[i] = " << yarr[i] << std::endl;
-        }
+        int arr_size = subsample(xvec, yvec, xarr, yarr, subindex);
         double xavg = get_average(xarr, arr_size);
         double yavg = get_average(yarr, arr_size);
         double sum_de = get_square_sum(xarr, xavg, arr_size);
@@ -696,9 +711,7 @@ int main(int argc, char **argv)
         else
         {
             double sum_nu = get_cross_sum(xarr, xavg, yarr, yavg, arr_size);
-            std::cout << "sum_nu = " << sum_nu << ", sum_de = " << sum_de << std::endl;
             alpha = atan(sum_nu / sum_de);
-            std::cout << "alpha from tan = " << alpha << std::endl;
         }
         alpha = regularize_0_pi(alpha);
         print_state_change(yaw0, yaw, offset0, offset, alpha, alpha - yaw);
