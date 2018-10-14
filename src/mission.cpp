@@ -120,7 +120,7 @@ bool get_offset()
 
 double regularize_angle(double ang)
 {
-    if (ang >= M_PI)
+    if (ang > M_PI)
     {
         ang -= 2 * M_PI;
     }
@@ -193,6 +193,27 @@ double get_average(double arr[], int size)
         sum += arr[i];
     }
     return sum / size;
+}
+
+double get_square_sum(double xarr[], double xavg, int size)
+{
+    double sum_de = 0.0;
+    for (int i = 0; i < size; i++)
+    {
+        double xdiff = xarr[i] - xavg;
+        sum_de += xdiff * xdiff;
+    }
+    return sum_de;
+}
+
+double get_cross_sum(double xarr[], double xavg, double yarr[], double yavg, int size)
+{
+    double sum_nu = 0.0;
+    for (int i = 0; i < size; i++)
+    {
+        sum_nu += (xarr[i] - xavg) * (yarr[i] - yavg);
+    }
+    return sum_nu;
 }
 
 double get_slope(double xarr[], double xavg, double yarr[], double yavg, int size)
@@ -362,7 +383,7 @@ int main(int argc, char **argv)
     double sidx = 0.0 / (double)snum_updates;
     double sidy = 0.0 / (double)snum_updates;
     double sidz = DELTA_METERS_V / (double)snum_updates;
-    update_orientation(pose_in.orientation, 0.0, 0.0, 2.0 * M_PI / 2.0);
+    update_orientation(pose_in.orientation, 0.0, 0.0, 0.0 * M_PI / 2.0);
     for (int i = 0; i < snum_updates; i++)
     {
         update_position(sidx, sidy, sidz);
@@ -376,7 +397,7 @@ int main(int argc, char **argv)
     double x0 = pose_in.position.x;
     double y0 = pose_in.position.y;
     getRPY(pose_in.orientation);               // Get yaw
-    double theta = angles::from_degrees(40.0); // 20 degrees
+    double theta = angles::from_degrees(30.0); // 20 degrees
     double alpha_wire = yaw + theta;
     alpha_wire = regularize_angle(alpha_wire);
     ROS_INFO("  >>> START yaw = %1.1f degrees", angles::to_degrees(yaw));
@@ -437,11 +458,11 @@ int main(int argc, char **argv)
             dx = -offset * sin(yaw);
             dy = offset * cos(yaw);
 
-            double shrink_ratio = DELTA_METERS_H / fabs(offset);
-            if (shrink_ratio < 1.0)
+            double shrink_ratio = fabs(offset) / DELTA_METERS_H;
+            if (shrink_ratio > 1.0)
             { // Constrain horizontal movement by DELTA_METERS_H, getting close horizontally
-                dx *= shrink_ratio;
-                dy *= shrink_ratio;
+                dx /= shrink_ratio;
+                dy /= shrink_ratio;
                 dz = 0.0;
                 ROS_INFO("  In ladar range, getting close horizontally, yaw = %1.1f degrees, offset = %1.2f, dx = %1.2f, dy = %1.2f", angles::to_degrees(yaw), offset, dx, dy);
             }
@@ -519,9 +540,16 @@ int main(int argc, char **argv)
     }
     double xavg = get_average(xarr, num_updates);
     double yavg = get_average(yarr, num_updates);
-    double slope = get_slope(xarr, xavg, yarr, yavg, num_updates);
-
-    alpha = atan(slope);
+    double sum_de = get_square_sum(xarr, xavg, num_updates);
+    if (sum_de < 1e-6)
+    {
+        alpha = M_PI / 2.0;
+    }
+    else
+    {
+        double sum_nu = get_cross_sum(xarr, xavg, yarr, yavg, num_updates);
+        alpha = atan(sum_nu / sum_de);
+    }
 
     // Initialize for next step
     double alpha_avg = alpha;
@@ -570,9 +598,17 @@ int main(int argc, char **argv)
         }
         double xavg = get_average(xarr, num_updates);
         double yavg = get_average(yarr, num_updates);
-        double slope = get_slope(xarr, xavg, yarr, yavg, num_updates);
+        double sum_de = get_square_sum(xarr, xavg, num_updates);
+        if (sum_de < 1e-6)
+        {
+            alpha = M_PI / 2.0;
+        }
+        else
+        {
+            double sum_nu = get_cross_sum(xarr, xavg, yarr, yavg, num_updates);
+            alpha = atan(sum_nu / sum_de);
+        }
 
-        alpha = atan(slope);
         print_state_change(yaw0, yaw, offset0, offset, alpha, alpha - yaw);
 
         // Initialize for next step
