@@ -300,6 +300,61 @@ double get_slope(double xarr[], double xavg, double yarr[], double yavg, int siz
     return sum_nu / sum_de;
 }
 
+double cable_orientation(const std::vector<double> &xvec, const std::vector<double> &yvec, double xarr[], double yarr[], int subindex[])
+{
+    int arr_size = subsample(xvec, yvec, xarr, yarr, subindex);
+    double xavg = get_average(xarr, arr_size);
+    double yavg = get_average(yarr, arr_size);
+    double sum_de = get_square_sum(xarr, xavg, arr_size);
+    double alpha = 0.0; // cable orientation
+    if (sum_de < 1e-6)
+    {
+        alpha = M_PI_2;
+    }
+    else
+    {
+        double sum_nu = get_cross_sum(xarr, xavg, yarr, yavg, arr_size);
+        alpha = atan(sum_nu / sum_de);
+    }
+    return regularize_0_pi(alpha);
+}
+
+double project_z(double izarr[], double zarr[], int size)
+{
+    double izavg = get_average(izarr, size);
+    double zavg = get_average(zarr, size);
+    double zslope = get_slope(izarr, izavg, zarr, zavg, size);
+    double zintercept = zavg - zslope * izavg;
+    double proj_z = zslope * (double)(2 * size - 1) + zintercept;
+    std::cout << "zslope = " << zslope << ", zslope degree = " << angles::to_degrees(atan(zslope)) << std::endl;
+    std::cout << "proj_z = " << proj_z << ", pose.z = " << pose_in.position.z << std::endl;
+    return proj_z;
+}
+
+double project_z_same_x(double izarr[], double izavg, double sum_de, double zarr[], int size)
+{
+    double zavg = get_average(zarr, size);
+    double zslope = get_cross_sum(izarr, izavg, zarr, zavg, size) / sum_de;
+    double zintercept = zavg - zslope * izavg;
+    double proj_z = zslope * (double)(2 * size - 1) + zintercept;
+    std::cout << "zslope = " << zslope << ", zslope degree = " << angles::to_degrees(atan(zslope)) << std::endl;
+    std::cout << "proj_z = " << proj_z << ", pose.z = " << pose_in.position.z << std::endl;
+    return proj_z;
+}
+
+double floor_ceil(double dz, double cap)
+{
+    if (dz > cap)
+    {
+        return cap;
+    }
+    if (dz < -cap)
+    {
+        return -cap;
+    }
+    return dz;
+}
+
 void getRPY(geometry_msgs::Quaternion qtn_msg)
 {
     tf::Quaternion qtn;
@@ -541,7 +596,7 @@ int main(int argc, char **argv)
             {
                 ROS_INFO("  In ladar range, getting close vertically, yaw = %1.1f degrees, offset = %1.2f, dx = %1.2f, dy = %1.2f", angles::to_degrees(yaw), offset, dx, dy);
                 double target_dist = vertical_dist - SAFETY_H;
-                if (target_dist <= DELTA_METERS_V)
+                if (target_dist >= -DELTA_METERS_V && target_dist <= DELTA_METERS_V)
                 {
                     dz = target_dist;
                     good_initial = true;
@@ -549,7 +604,7 @@ int main(int argc, char **argv)
                 }
                 else
                 {
-                    dz = DELTA_METERS_V;
+                    dz = target_dist > 0.0 ? DELTA_METERS_V : -DELTA_METERS_V;
                 }
             }
         }
@@ -576,14 +631,12 @@ int main(int argc, char **argv)
         Way point 0, adjust to good yaw
     */
     ROS_INFO("=====> going to way point 0");
-    // No need to adjust in the first step
-    double alpha = 0.0;
 
     // Initialize
     getRPY(pose_in.orientation); // Get yaw
     dx = DELTA_METERS_H * cos(yaw);
     dy = DELTA_METERS_H * sin(yaw);
-    dz = std::min(DELTA_METERS_V, vertical_dist - SAFETY_H);
+    dz = floor_ceil(vertical_dist - SAFETY_H, DELTA_METERS_V);
 
     std::vector<double> xvec;
     std::vector<double> yvec;
@@ -591,6 +644,15 @@ int main(int argc, char **argv)
     double xarr[LEAST_SQUARE_LEN];
     double yarr[LEAST_SQUARE_LEN];
     int num_updates = DELTA_SECONDS_H * ROS_RATE / UPDATE_JUMP;
+    double izarr[num_updates];
+    for (int i = 0; i < num_updates; i++)
+    {
+        izarr[i] = (double)i;
+    }
+    double izavg = get_average(izarr, num_updates);
+    double sumiz_de = get_square_sum(izarr, izavg, num_updates);
+
+    double zarr[num_updates];
     double idx = dx / (double)num_updates;
     double idy = dy / (double)num_updates;
     double idz = dz / (double)num_updates;
@@ -602,6 +664,8 @@ int main(int argc, char **argv)
         get_offset(yaw, currx, curry, currz, line_a, line_b, line_c, xm, ym);
         xvec.push_back(currx - offset * sin(yaw));
         yvec.push_back(curry + offset * cos(yaw));
+        // izarr[i] = (double)i;
+        zarr[i] = currz + vertical_dist;
         update_position(idx, idy, idz);
         for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
         {
@@ -610,20 +674,9 @@ int main(int argc, char **argv)
             rate.sleep();
         }
     }
-    int arr_size = subsample(xvec, yvec, xarr, yarr, subindex);
-    double xavg = get_average(xarr, arr_size);
-    double yavg = get_average(yarr, arr_size);
-    double sum_de = get_square_sum(xarr, xavg, arr_size);
-    if (sum_de < 1e-6)
-    {
-        alpha = M_PI_2;
-    }
-    else
-    {
-        double sum_nu = get_cross_sum(xarr, xavg, yarr, yavg, arr_size);
-        alpha = atan(sum_nu / sum_de);
-    }
-    alpha = regularize_0_pi(alpha);
+    double alpha = cable_orientation(xvec, yvec, xarr, yarr, subindex);
+    // double proj_z = project_z(izarr, zarr, num_updates);
+    double proj_z = project_z_same_x(izarr, izavg, sumiz_de, zarr, num_updates);
 
     // Initialize for next step
     double alpha_avg = alpha;
@@ -632,13 +685,12 @@ int main(int argc, char **argv)
     getRPY(pose_in.orientation); // Get yaw
     double yaw0 = yaw;
     print_state_change(yaw0, yaw, offset0, offset, alpha, alpha_avg - yaw);
-
     print_position("=====> way point 0 finished");
 
     /* 
         Common way points 
     */
-    for (int iwp = 1; iwp < 10; iwp++)
+    for (int iwp = 1; iwp < 20; iwp++)
     {
         ROS_INFO("=====> going to way point %d", iwp);
         double vertical_offset = get_vertical_offset(offset0, yaw0, alpha_avg);
@@ -676,7 +728,10 @@ int main(int argc, char **argv)
         double omega = alpha_avg + asin(vertical_offset / diagonal_length);
         double dx = diagonal_length * cos(omega);
         double dy = diagonal_length * sin(omega);
-        double dz = std::min(DELTA_METERS_V, vertical_dist - SAFETY_H);
+        // double dz = floor_ceil(vertical_dist - SAFETY_H, DELTA_METERS_V);
+        double dz = floor_ceil(proj_z - pose_in.position.z - SAFETY_H, DELTA_METERS_V);
+        std::cout << "proj_z - pose_in.position.z - SAFETY_H = " << proj_z - pose_in.position.z - SAFETY_H << std::endl;
+
         double dyaw = alpha_avg - yaw0; // Change this
 
         // TODO: Added upper limit on dz and dyaw
@@ -692,6 +747,8 @@ int main(int argc, char **argv)
             get_offset(yaw, currx, curry, currz, line_a, line_b, line_c, xm, ym);
             xvec.push_back(currx - offset * sin(yaw));
             yvec.push_back(curry + offset * cos(yaw));
+            // izarr[i] = (double)i;
+            zarr[i] = currz + vertical_dist;
             update_position(idx, idy, idz);
             for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
             {
@@ -700,20 +757,10 @@ int main(int argc, char **argv)
                 rate.sleep();
             }
         }
-        int arr_size = subsample(xvec, yvec, xarr, yarr, subindex);
-        double xavg = get_average(xarr, arr_size);
-        double yavg = get_average(yarr, arr_size);
-        double sum_de = get_square_sum(xarr, xavg, arr_size);
-        if (sum_de < 1e-6)
-        {
-            alpha = M_PI_2;
-        }
-        else
-        {
-            double sum_nu = get_cross_sum(xarr, xavg, yarr, yavg, arr_size);
-            alpha = atan(sum_nu / sum_de);
-        }
-        alpha = regularize_0_pi(alpha);
+        alpha = cable_orientation(xvec, yvec, xarr, yarr, subindex);
+        // proj_z = project_z(izarr, zarr, num_updates);
+        proj_z = project_z_same_x(izarr, izavg, sumiz_de, zarr, num_updates);
+
         print_state_change(yaw0, yaw, offset0, offset, alpha, alpha - yaw);
 
         // Initialize for next step
