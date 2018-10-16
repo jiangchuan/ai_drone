@@ -374,6 +374,13 @@ void set_waypoint(double x, double y, double z, double roll, double pitch, doubl
     quaternionTFToMsg(qtn, pose_stamped.pose.orientation);
 }
 
+void set_position(double x, double y, double z)
+{
+    pose_stamped.pose.position.x = x;
+    pose_stamped.pose.position.y = y;
+    pose_stamped.pose.position.z = z;
+}
+
 void delta_position(double dx, double dy, double dz)
 {
     pose_stamped.pose.position.x += dx;
@@ -570,7 +577,10 @@ int main(int argc, char **argv)
         }
         num_trial++;
 
-        bool in_ladar_range = get_offset(yaw, pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
+        double startx = pose_in.position.x;
+        double starty = pose_in.position.y;
+        double startz = pose_in.position.z;
+        bool in_ladar_range = get_offset(yaw, startx, starty, startz, line_a, line_b, line_c, xm, ym);
         if (!in_ladar_range)
         { // Far away
             ROS_INFO("  Not in ladar range yet");
@@ -613,9 +623,10 @@ int main(int argc, char **argv)
         double idx = dx / (double)num_updates;
         double idy = dy / (double)num_updates;
         double idz = dz / (double)num_updates;
-        for (int i = 0; i < num_updates; i++)
+        for (int i = 0, i1 = 1; i < num_updates; i++, i1++)
         {
-            delta_position(idx, idy, idz);
+            // delta_position(idx, idy, idz);
+            set_position(startx + i1 * idx, starty + i1 * idy, startz + i1 * idz);
             for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
             {
                 local_pos_pub.publish(pose_stamped);
@@ -632,6 +643,10 @@ int main(int argc, char **argv)
     ROS_INFO("=====> going to way point 0");
 
     // Initialize
+    double startx = pose_in.position.x;
+    double starty = pose_in.position.y;
+    double startz = pose_in.position.z;
+
     getRPY(pose_in.orientation); // Get yaw
     dx = DELTA_METERS_H * cos(yaw);
     dy = DELTA_METERS_H * sin(yaw);
@@ -654,7 +669,7 @@ int main(int argc, char **argv)
     double idx = dx / (double)num_updates;
     double idy = dy / (double)num_updates;
     double idz = dz / (double)num_updates;
-    for (int i = 0; i < num_updates; i++)
+    for (int i = 0, i1 = 1; i < num_updates; i++, i1++)
     {
         double currx = pose_in.position.x;
         double curry = pose_in.position.y;
@@ -663,7 +678,8 @@ int main(int argc, char **argv)
         xvec.push_back(currx - offset * sin(yaw));
         yvec.push_back(curry + offset * cos(yaw));
         zarr[i] = currz + vertical_dist;
-        delta_position(idx, idy, idz);
+        // delta_position(idx, idy, idz);
+        set_position(startx + i1 * idx, starty + i1 * idy, startz + i1 * idz);
         for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
         {
             local_pos_pub.publish(pose_stamped);
@@ -676,7 +692,10 @@ int main(int argc, char **argv)
 
     // Initialize for next step
     double alpha_avg = alpha;
-    get_offset(yaw, pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
+    startx = pose_in.position.x;
+    starty = pose_in.position.y;
+    startz = pose_in.position.z;
+    get_offset(yaw, startx, starty, startz, line_a, line_b, line_c, xm, ym);
     double offset0 = offset;
     getRPY(pose_in.orientation); // Get yaw
     double yaw0 = yaw;
@@ -735,7 +754,7 @@ int main(int argc, char **argv)
         double idy = dy / (double)num_updates;
         double idz = dz / (double)num_updates;
         delta_orientation(pose_in.orientation, 0.0, 0.0, dyaw);
-        for (int i = 0; i < num_updates; i++)
+        for (int i = 0, i1 = 1; i < num_updates; i++, i1++)
         {
             double currx = pose_in.position.x;
             double curry = pose_in.position.y;
@@ -744,7 +763,8 @@ int main(int argc, char **argv)
             xvec.push_back(currx - offset * sin(yaw));
             yvec.push_back(curry + offset * cos(yaw));
             zarr[i] = currz + vertical_dist;
-            delta_position(idx, idy, idz);
+            // delta_position(idx, idy, idz);
+            set_position(startx + i1 * idx, starty + i1 * idy, startz + i1 * idz);
             for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
             {
                 local_pos_pub.publish(pose_stamped);
@@ -758,7 +778,10 @@ int main(int argc, char **argv)
 
         // Initialize for next step
         alpha_avg = lambda * alpha + (1 - lambda) * alpha_avg;
-        get_offset(yaw, pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
+        startx = pose_in.position.x;
+        starty = pose_in.position.y;
+        startz = pose_in.position.z;
+        get_offset(yaw, startx, starty, startz, line_a, line_b, line_c, xm, ym);
         offset0 = offset;
         getRPY(pose_in.orientation); // Get yaw
         yaw0 = yaw;
