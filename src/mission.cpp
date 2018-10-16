@@ -30,13 +30,14 @@
 #define DELTA_SECONDS_H 5
 #define DELTA_SECONDS_V 5
 
+#define MAX_POS_LEN 100
+// #define MAX_POS_LEN 1000
 #define LEAST_SQUARE_LEN 30
 
 #define DELTA_METERS_H 1.0
 #define DELTA_METERS_V 1.0 // maximum dz
 #define LEDDAR_RANGE 10.0
 #define SAFETY_H 5.0
-#define FLIGHT_ALTITUDE 1.5f
 
 mavros_msgs::State current_state;
 geometry_msgs::Pose pose_in;
@@ -211,7 +212,7 @@ bool subsample_index(int ll, int ss, int selected[], bool reverse)
     {
         selected[0] = 0;
     }
-    // std::cout << selected[0] << ", ";
+    std::cout << selected[0] << ", ";
     int is = 1;
     for (int il = 1; il < ll; il++)
     {
@@ -225,7 +226,7 @@ bool subsample_index(int ll, int ss, int selected[], bool reverse)
             {
                 selected[is] = il;
             }
-            // std::cout << selected[is] << ", ";
+            std::cout << selected[is] << ", ";
             is++;
             sum += jump;
         }
@@ -240,6 +241,24 @@ bool subsample_index(int ll, int ss, int selected[], bool reverse)
 int subsample(const std::vector<double> &xvec, const std::vector<double> &yvec, double xarr[], double yarr[], int subindex[])
 {
     int vec_size = xvec.size();
+    int arr_size = LEAST_SQUARE_LEN;
+    if (vec_size <= LEAST_SQUARE_LEN)
+    {
+        arr_size = vec_size;
+    }
+    bool success = subsample_index(vec_size, arr_size, subindex, true);
+    for (int i = 0; i < arr_size; i++)
+    {
+        int index = subindex[i];
+        xarr[i] = xvec[index];
+        yarr[i] = yvec[index];
+        // std::cout << "xarr[i] = " << xarr[i] << ", yarr[i] = " << yarr[i] << std::endl;
+    }
+    return arr_size;
+}
+
+int subsample(double xvec[], double yvec[], int vec_size, double xarr[], double yarr[], int subindex[])
+{
     int arr_size = LEAST_SQUARE_LEN;
     if (vec_size <= LEAST_SQUARE_LEN)
     {
@@ -300,9 +319,38 @@ double get_slope(double xarr[], double xavg, double yarr[], double yavg, int siz
     return sum_nu / sum_de;
 }
 
+int half_array(double arr[], int size)
+{
+    int half_size = size / 2;
+    for (int i = 1, j = 2; i < half_size; i++, j += 2)
+    {
+        arr[i] = arr[j];
+    }
+    return half_size;
+}
+
 double cable_orientation(const std::vector<double> &xvec, const std::vector<double> &yvec, double xarr[], double yarr[], int subindex[])
 {
     int arr_size = subsample(xvec, yvec, xarr, yarr, subindex);
+    double xavg = get_average(xarr, arr_size);
+    double yavg = get_average(yarr, arr_size);
+    double sum_de = get_square_sum(xarr, xavg, arr_size);
+    double alpha = 0.0; // cable orientation
+    if (sum_de < 1e-6)
+    {
+        alpha = M_PI_2;
+    }
+    else
+    {
+        double sum_nu = get_cross_sum(xarr, xavg, yarr, yavg, arr_size);
+        alpha = atan(sum_nu / sum_de);
+    }
+    return regularize_0_pi(alpha);
+}
+
+double cable_orientation(double xvec[], double yvec[], int vec_size, double xarr[], double yarr[], int subindex[])
+{
+    int arr_size = subsample(xvec, yvec, vec_size, xarr, yarr, subindex);
     double xavg = get_average(xarr, arr_size);
     double yavg = get_average(yarr, arr_size);
     double sum_de = get_square_sum(xarr, xavg, arr_size);
@@ -637,12 +685,16 @@ int main(int argc, char **argv)
     dy = DELTA_METERS_H * sin(yaw);
     dz = floor_ceil(vertical_dist - SAFETY_H, DELTA_METERS_V);
 
-    std::vector<double> xvec;
-    std::vector<double> yvec;
+    // std::vector<double> xvec;
+    // std::vector<double> yvec;
     int subindex[LEAST_SQUARE_LEN];
     double xarr[LEAST_SQUARE_LEN];
     double yarr[LEAST_SQUARE_LEN];
     int num_updates = DELTA_SECONDS_H * ROS_RATE / UPDATE_JUMP;
+    double xvec[MAX_POS_LEN + num_updates];
+    double yvec[MAX_POS_LEN + num_updates];
+    int curr_data_pos = 0;
+
     double izarr[num_updates];
     for (int i = 0; i < num_updates; i++)
     {
@@ -654,14 +706,16 @@ int main(int argc, char **argv)
     double idx = dx / (double)num_updates;
     double idy = dy / (double)num_updates;
     double idz = dz / (double)num_updates;
-    for (int i = 0; i < num_updates; i++)
+    for (int i = 0; i < num_updates; i++, curr_data_pos++)
     {
         double currx = pose_in.position.x;
         double curry = pose_in.position.y;
         double currz = pose_in.position.z;
         get_offset(yaw, currx, curry, currz, line_a, line_b, line_c, xm, ym);
-        xvec.push_back(currx - offset * sin(yaw));
-        yvec.push_back(curry + offset * cos(yaw));
+        // xvec.push_back(currx - offset * sin(yaw));
+        // yvec.push_back(curry + offset * cos(yaw));
+        xvec[curr_data_pos] = currx - offset * sin(yaw);
+        yvec[curr_data_pos] = curry + offset * cos(yaw);
         zarr[i] = currz + vertical_dist;
         delta_position(idx, idy, idz);
         for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
@@ -671,7 +725,9 @@ int main(int argc, char **argv)
             rate.sleep();
         }
     }
-    double alpha = cable_orientation(xvec, yvec, xarr, yarr, subindex);
+    // double alpha = cable_orientation(xvec, yvec, xarr, yarr, subindex);
+    // std::cout << "first curr_data_pos = " << curr_data_pos << std::endl;
+    double alpha = cable_orientation(xvec, yvec, curr_data_pos, xarr, yarr, subindex);
     double proj_z = project_z_same_x(izarr, izavg, sumiz_de, zarr, num_updates);
 
     // Initialize for next step
@@ -735,14 +791,22 @@ int main(int argc, char **argv)
         double idy = dy / (double)num_updates;
         double idz = dz / (double)num_updates;
         delta_orientation(pose_in.orientation, 0.0, 0.0, dyaw);
-        for (int i = 0; i < num_updates; i++)
+
+        if (curr_data_pos >= MAX_POS_LEN)
+        {
+            half_array(xvec, curr_data_pos);
+            curr_data_pos = half_array(yvec, curr_data_pos);
+        }
+        for (int i = 0; i < num_updates; i++, curr_data_pos++)
         {
             double currx = pose_in.position.x;
             double curry = pose_in.position.y;
             double currz = pose_in.position.z;
             get_offset(yaw, currx, curry, currz, line_a, line_b, line_c, xm, ym);
-            xvec.push_back(currx - offset * sin(yaw));
-            yvec.push_back(curry + offset * cos(yaw));
+            // xvec.push_back(currx - offset * sin(yaw));
+            // yvec.push_back(curry + offset * cos(yaw));
+            xvec[curr_data_pos] = currx - offset * sin(yaw);
+            yvec[curr_data_pos] = curry + offset * cos(yaw);
             zarr[i] = currz + vertical_dist;
             delta_position(idx, idy, idz);
             for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
@@ -752,7 +816,10 @@ int main(int argc, char **argv)
                 rate.sleep();
             }
         }
-        alpha = cable_orientation(xvec, yvec, xarr, yarr, subindex);
+        // alpha = cable_orientation(xvec, yvec, xarr, yarr, subindex);
+        std::cout << iwp << "th curr_data_pos = " << curr_data_pos << std::endl;
+        alpha = cable_orientation(xvec, yvec, curr_data_pos, xarr, yarr, subindex);
+
         proj_z = project_z_same_x(izarr, izavg, sumiz_de, zarr, num_updates);
         print_state_change(yaw0, yaw, offset0, offset, alpha, alpha - yaw);
 
