@@ -58,7 +58,6 @@ void state_callback(const mavros_msgs::State::ConstPtr &msg)
 void local_pos_callback(const geometry_msgs::PoseStamped::ConstPtr &msg)
 {
     pose_in = msg->pose;
-    // ROS_INFO("pose: x=[%f], y=[%f], z=[%f]", pose_in.position.x, pose_in.position.y, pose_in.position.z);
 }
 
 // void gps_callback(const sensor_msgs::NavSatFix::ConstPtr &msg)
@@ -423,6 +422,13 @@ void set_waypoint(double x, double y, double z, double roll, double pitch, doubl
     quaternionTFToMsg(qtn, pose_stamped.pose.orientation);
 }
 
+void set_position(double x, double y, double z)
+{
+    pose_stamped.pose.position.x = x;
+    pose_stamped.pose.position.y = y;
+    pose_stamped.pose.position.z = z;
+}
+
 void delta_position(double dx, double dy, double dz)
 {
     pose_stamped.pose.position.x += dx;
@@ -619,7 +625,10 @@ int main(int argc, char **argv)
         }
         num_trial++;
 
-        bool in_ladar_range = get_offset(yaw, pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
+        double startx = pose_in.position.x;
+        double starty = pose_in.position.y;
+        double startz = pose_in.position.z;
+        bool in_ladar_range = get_offset(yaw, startx, starty, startz, line_a, line_b, line_c, xm, ym);
         if (!in_ladar_range)
         { // Far away
             ROS_INFO("  Not in ladar range yet");
@@ -658,12 +667,25 @@ int main(int argc, char **argv)
             }
         }
 
+        double targetx = startx + dx;
+        double targety = starty + dy;
+        double targetz = startz + dz;
+        std::cout << "startx = " << startx << ", starty = " << starty << ", startz = " << startz << std::endl;
+        std::cout << "dx = " << dx << ", dy = " << dy << ", dz = " << dz << std::endl;
+        std::cout << "targetx = " << targetx << ", targety = " << targety << ", targetz = " << targetz << std::endl;
         int num_updates = DELTA_SECONDS_V * ROS_RATE / UPDATE_JUMP;
-        double idx = dx / (double)num_updates;
-        double idy = dy / (double)num_updates;
-        double idz = dz / (double)num_updates;
         for (int i = 0; i < num_updates; i++)
         {
+            double n = (double)(num_updates - i);
+            double idx = (targetx - pose_in.position.x) / n;
+            double idy = (targety - pose_in.position.y) / n;
+            double idz = (targetz - pose_in.position.z) / n;
+
+            std::cout << "n = " << n << std::endl;
+
+            std::cout << "posex = " << pose_in.position.x << ", posey = " << pose_in.position.y << ", posez = " << pose_in.position.z << std::endl;
+            std::cout << "idx = " << idx << ", idy = " << idy << ", idz = " << idz << std::endl;
+
             delta_position(idx, idy, idz);
             for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
             {
@@ -681,13 +703,17 @@ int main(int argc, char **argv)
     ROS_INFO("=====> going to way point 0");
 
     // Initialize
+    double startx = pose_in.position.x;
+    double starty = pose_in.position.y;
+    double startz = pose_in.position.z;
     getRPY(pose_in.orientation); // Get yaw
     dx = DELTA_METERS_H * cos(yaw);
     dy = DELTA_METERS_H * sin(yaw);
     dz = floor_ceil(vertical_dist - SAFETY_H, DELTA_METERS_V);
+    double targetx = startx + dx;
+    double targety = starty + dy;
+    double targetz = startz + dz;
 
-    // std::vector<double> xvec;
-    // std::vector<double> yvec;
     int subindex[LEAST_SQUARE_LEN];
     double xarr[LEAST_SQUARE_LEN];
     double yarr[LEAST_SQUARE_LEN];
@@ -704,9 +730,6 @@ int main(int argc, char **argv)
     double izavg = get_average(izarr, num_updates);
     double sumiz_de = get_square_sum(izarr, izavg, num_updates);
     double zarr[num_updates];
-    double idx = dx / (double)num_updates;
-    double idy = dy / (double)num_updates;
-    double idz = dz / (double)num_updates;
     for (int i = 0; i < num_updates; i++, curr_data_pos++)
     {
         double currx = pose_in.position.x;
@@ -718,6 +741,12 @@ int main(int argc, char **argv)
         xvec[curr_data_pos] = currx - offset * sin(yaw);
         yvec[curr_data_pos] = curry + offset * cos(yaw);
         zarr[i] = currz + vertical_dist;
+
+        double n = (double)(num_updates - i);
+        double idx = (targetx - currx) / n;
+        double idy = (targety - curry) / n;
+        double idz = (targetz - currz) / n;
+
         delta_position(idx, idy, idz);
         for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
         {
@@ -733,7 +762,10 @@ int main(int argc, char **argv)
 
     // Initialize for next step
     double alpha_avg = alpha;
-    get_offset(yaw, pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
+    startx = pose_in.position.x;
+    starty = pose_in.position.y;
+    startz = pose_in.position.z;
+    get_offset(yaw, startx, starty, startz, line_a, line_b, line_c, xm, ym);
     double offset0 = offset;
     getRPY(pose_in.orientation); // Get yaw
     double yaw0 = yaw;
@@ -785,12 +817,13 @@ int main(int argc, char **argv)
         double dz = floor_ceil(proj_z - pose_in.position.z - SAFETY_H, DELTA_METERS_V);
         std::cout << "proj_z - pose_in.position.z - SAFETY_H = " << proj_z - pose_in.position.z - SAFETY_H << std::endl;
 
+        double targetx = startx + dx;
+        double targety = starty + dy;
+        double targetz = startz + dz;
+
         double dyaw = alpha_avg - yaw0; // Change this
 
         // TODO: Added upper limit on dz and dyaw
-        double idx = dx / (double)num_updates;
-        double idy = dy / (double)num_updates;
-        double idz = dz / (double)num_updates;
         delta_orientation(pose_in.orientation, 0.0, 0.0, dyaw);
 
         if (curr_data_pos >= MAX_POS_LEN)
@@ -809,6 +842,12 @@ int main(int argc, char **argv)
             xvec[curr_data_pos] = currx - offset * sin(yaw);
             yvec[curr_data_pos] = curry + offset * cos(yaw);
             zarr[i] = currz + vertical_dist;
+
+            double n = (double)(num_updates - i);
+            double idx = (targetx - currx) / n;
+            double idy = (targety - curry) / n;
+            double idz = (targetz - currz) / n;
+
             delta_position(idx, idy, idz);
             for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
             {
@@ -826,7 +865,10 @@ int main(int argc, char **argv)
 
         // Initialize for next step
         alpha_avg = lambda * alpha + (1 - lambda) * alpha_avg;
-        get_offset(yaw, pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
+        startx = pose_in.position.x;
+        starty = pose_in.position.y;
+        startz = pose_in.position.z;
+        get_offset(yaw, startx, starty, startz, line_a, line_b, line_c, xm, ym);
         offset0 = offset;
         getRPY(pose_in.orientation); // Get yaw
         yaw0 = yaw;
