@@ -6,6 +6,7 @@
 
 #include <ros/ros.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <mavros_msgs/CommandBool.h>
 #include <mavros_msgs/CommandTOL.h>
 #include <mavros_msgs/SetMode.h>
@@ -24,6 +25,11 @@
 #include <algorithm>
 #include <vector>
 
+#include <iostream>
+#include <set>
+#include <iterator>
+#include <string>
+
 #define ROS_RATE 20
 #define UPDATE_JUMP 4 // ROS_RATE / UPDATE_JUMP is the pos update rate
 
@@ -33,16 +39,22 @@
 #define MAX_POS_LEN 100
 // #define MAX_POS_LEN 1000
 #define LEAST_SQUARE_LEN 30
+#define BUFFER_SIZE 5
 
 #define DELTA_METERS_H 1.0
 #define DELTA_METERS_V 1.0 // maximum dz
 #define LEDDAR_RANGE 10.0
 #define SAFETY_H 5.0
 
+const std::string LEDDAR_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/src/leddar_results.txt";
+const std::string GPS_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/src/gps_results.csv";
+
 mavros_msgs::State current_state;
 geometry_msgs::Pose pose_in;
 geometry_msgs::PoseStamped pose_stamped;
+sensor_msgs::NavSatFix::ConstPtr gps_msg;
 
+// double lat = 0.0, lon = 0.0, alt = 0.0;
 double x = 0.0, y = 0.0, z = 0.0;
 double roll = 0.0, pitch = 0.0, yaw = 0.0;
 double lambda = 0.8;
@@ -50,22 +62,114 @@ double offset = 0.0;
 double vertical_dist = 1000.0;
 double segment_angle = angles::from_degrees(2.5); // 2.5 degrees
 
+// double xbuf[BUFFER_SIZE];
+// double ybuf[BUFFER_SIZE];
+// double zbuf[BUFFER_SIZE];
+// double yawbuf[BUFFER_SIZE];
+// int ibuf = 0;
+// double xstable = 0.0;
+// double ystable = 0.0;
+// double zstable = 0.0;
+// double yawstable = 0.0;
+
+/*
+ * A class to create and write data in a csv file.
+ */
+class CSVWriter
+{
+    std::string fileName;
+    std::string delimeter;
+    int linesCount;
+
+  public:
+    CSVWriter(std::string filename, std::string delm = ",") : fileName(filename), delimeter(delm), linesCount(0)
+    {
+    }
+    /*
+	 * Member function to store a range as comma seperated value
+	 */
+    template <typename T>
+    void add_row(T first, T last);
+};
+
 void state_callback(const mavros_msgs::State::ConstPtr &msg)
 {
     current_state = *msg;
+}
+
+double get_average(double arr[], int size)
+{
+    double sum = 0.0;
+    for (int i = 0; i < size; i++)
+    {
+        sum += arr[i];
+    }
+    return sum / double(size);
 }
 
 void local_pos_callback(const geometry_msgs::PoseStamped::ConstPtr &msg)
 {
     pose_in = msg->pose;
     // ROS_INFO("pose: x=[%f], y=[%f], z=[%f]", pose_in.position.x, pose_in.position.y, pose_in.position.z);
+
+    // if (ibuf >= BUFFER_SIZE)
+    // {
+    //     ibuf -= BUFFER_SIZE;
+    // }
+    // xbuf[ibuf] = pose_in.position.x;
+    // ybuf[ibuf] = pose_in.position.y;
+    // zbuf[ibuf] = pose_in.position.z;
+    // ibuf++;
+    // xstable = get_average(xbuf, BUFFER_SIZE);
+    // ystable = get_average(ybuf, BUFFER_SIZE);
+    // zstable = get_average(zbuf, BUFFER_SIZE);
 }
 
-// void gps_callback(const sensor_msgs::NavSatFix::ConstPtr &msg)
-// {
-//     ROS_INFO("GPS Seq: [%d]", msg->header.seq);
-//     ROS_INFO("GPS latitude: [%f], longitude: [%f], altitude: [%f]", msg->latitude, msg->longitude, msg->altitude);
-// }
+void gps_callback(const sensor_msgs::NavSatFix::ConstPtr &msg)
+{
+    // lat = msg->latitude;
+    // lon = msg->longitude;
+    // alt = msg->altitude;
+    // ROS_INFO("GPS Seq: [%d]", msg->header.seq);
+    // ROS_INFO("GPS latitude: [%f], longitude: [%f], altitude: [%f]", msg->latitude, msg->longitude, msg->altitude);
+
+    gps_msg = msg;
+    // ROS_INFO("GPS Seq: [%d]", gps_msg->header.seq);
+    // ROS_INFO("GPS latitude: [%f], longitude: [%f], altitude: [%f]", gps_msg->latitude, gps_msg->longitude, gps_msg->altitude);
+}
+
+void utm_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr &msg)
+{
+    ROS_INFO("Entered utm callback");
+    ROS_INFO("UTM Seq: [%d]", msg->header.seq);
+    ROS_INFO("pose: x=%f, y=%f, z=%f", msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
+    ROS_INFO("orientation: x=%f, y=%f, z=%f, w=%f", msg->pose.pose.orientation.x, msg->pose.pose.orientation.y, msg->pose.pose.orientation.z, msg->pose.pose.orientation.w);
+}
+
+/*
+ * This Function accepts a range and appends all the elements in the range
+ * to the last row, seperated by delimeter (Default is comma)
+ */
+template <typename T>
+void CSVWriter::add_row(T first, T last)
+{
+    std::fstream file;
+    // Open the file in truncate mode if first line else in Append Mode
+    file.open(fileName, std::ios::out | (linesCount ? std::ios::app : std::ios::trunc));
+
+    // Iterate over the range and add each lement to file seperated by delimeter.
+    for (; first != last;)
+    {
+        file << *first;
+        if (++first != last)
+            file << delimeter;
+    }
+    file << "\n";
+    linesCount++;
+
+    // Close the file
+    file.close();
+}
 
 std::vector<std::string> split_str(const std::string &s, char delimiter)
 {
@@ -83,7 +187,7 @@ bool get_offset()
 {
     std::stringstream ss;
     std::string line;
-    std::ifstream myfile("/home/jiangchuan/catkin_ws/src/ai_drone/src/leddar_results.txt");
+    std::ifstream myfile(LEDDAR_FILENAME);
     if (myfile.is_open())
     {
         while (getline(myfile, line))
@@ -276,16 +380,6 @@ int subsample(double xvec[], double yvec[], int vec_size, double xarr[], double 
     return arr_size;
 }
 
-double get_average(double arr[], int size)
-{
-    double sum = 0.0;
-    for (int i = 0; i < size; i++)
-    {
-        sum += arr[i];
-    }
-    return sum / size;
-}
-
 double get_square_sum(double xarr[], double xavg, int size)
 {
     double sum_de = 0.0;
@@ -430,11 +524,11 @@ void delta_position(double dx, double dy, double dz)
     pose_stamped.pose.position.z += dz;
 }
 
-void delta_orientation(geometry_msgs::Quaternion qtn_msg, double droll, double dpitch, double dyaw)
+void delta_orientation(double droll, double dpitch, double dyaw)
 {
     tf::Quaternion delta_qtn = tf::createQuaternionFromRPY(droll, dpitch, dyaw);
     tf::Quaternion qtn;
-    quaternionMsgToTF(qtn_msg, qtn);
+    quaternionMsgToTF(pose_stamped.pose.orientation, qtn);
     qtn = delta_qtn * qtn;
     qtn.normalize();
     quaternionTFToMsg(qtn, pose_stamped.pose.orientation);
@@ -451,7 +545,8 @@ void print_state_change(double yaw0, double yaw, double offset0, double offset, 
 void print_position(std::string header)
 {
     ROS_INFO(header.c_str());
-    ROS_INFO("  >>> end position: x = %1.2f, y = %1.2f, z = %1.2f", pose_stamped.pose.position.x, pose_stamped.pose.position.y, pose_stamped.pose.position.z);
+    ROS_INFO("  >>> end position: x = %1.2f, y = %1.2f, z = %1.2f", pose_in.position.x, pose_in.position.y, pose_in.position.z);
+    // ROS_INFO("      lat = %f, lon = %f, z = %1.2f", lat, lon, alt);
     ROS_INFO("      roll = %1.1f degrees, pitch = %1.1f degrees, yaw = %1.1f degrees\n", angles::to_degrees(roll), angles::to_degrees(pitch), angles::to_degrees(yaw));
 }
 
@@ -468,7 +563,10 @@ int main(int argc, char **argv)
 
     ros::Subscriber state_sub = nh.subscribe<mavros_msgs::State>("mavros/state", 10, state_callback);
     ros::Subscriber local_pos_sub = nh.subscribe<geometry_msgs::PoseStamped>("/mavros/local_position/pose", 10, local_pos_callback);
-    // ros::Subscriber gps_sub = nh.subscribe<sensor_msgs::NavSatFix>("mavros/global_position/global", 10, gps_callback);
+    ros::Subscriber gps_sub = nh.subscribe<sensor_msgs::NavSatFix>("mavros/global_position/global", 10, gps_callback);
+
+    ros::Subscriber utm_sub = nh.subscribe<geometry_msgs::PoseWithCovarianceStamped>("mavros/global_position/local", 10, utm_callback);
+
     ros::Publisher local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>("mavros/setpoint_position/local", 10);
     ros::ServiceClient arming_client = nh.serviceClient<mavros_msgs::CommandBool>("mavros/cmd/arming");
     ros::ServiceClient land_client = nh.serviceClient<mavros_msgs::CommandTOL>("mavros/cmd/land");
@@ -476,6 +574,19 @@ int main(int argc, char **argv)
 
     //the setpoint publishing rate MUST be faster than 2Hz
     ros::Rate rate((double)ROS_RATE);
+
+    // // Test write csv starts
+    // // Creating an object of CSVWriter
+    // CSVWriter gps_writer(GPS_FILENAME);
+    // std::vector<std::string> dataList_1 = {"20", "hi", "99"};
+    // gps_writer.add_row(dataList_1.begin(), dataList_1.end());
+    // std::set<int> dataList_2 = {3, 4, 5};
+    // gps_writer.add_row(dataList_2.begin(), dataList_2.end());
+    // std::string str = "abc";
+    // gps_writer.add_row(str.begin(), str.end());
+    // int arr[] = {3, 4, 2};
+    // gps_writer.add_row(arr, arr + sizeof(arr) / sizeof(int));
+    // // Test write csv ends
 
     // wait for FCU connection
     while (ros::ok() && !current_state.connected)
@@ -494,7 +605,6 @@ int main(int argc, char **argv)
     }
 
     pose_stamped.pose = pose_in;
-    delta_position(0.0, 0.0, DELTA_METERS_V);
 
     //send a few setpoints before starting
     for (int i = 100; ros::ok() && i > 0; --i)
@@ -544,6 +654,15 @@ int main(int argc, char **argv)
         rate.sleep();
     }
 
+    // stay at origin for 5 seconds
+    ROS_INFO("stay at origin for %d seconds", DELTA_SECONDS_H);
+    for (int i = 0; ros::ok() && i < DELTA_SECONDS_H * ROS_RATE; i++)
+    {
+        local_pos_pub.publish(pose_stamped);
+        ros::spinOnce();
+        rate.sleep();
+    }
+
     mavros_msgs::CommandTOL land_cmd;
     land_cmd.request.yaw = 0.0f;
     land_cmd.request.latitude = 0.0f;
@@ -554,11 +673,12 @@ int main(int argc, char **argv)
     ROS_INFO("  >>> INITIAL yaw = %1.1f degrees", angles::to_degrees(yaw));
 
     // Wire simulation starts
-    int snum_updates = 4 * DELTA_SECONDS_H * ROS_RATE / UPDATE_JUMP;
+    int snum_updates = 2 * DELTA_SECONDS_H * ROS_RATE / UPDATE_JUMP;
     double sidx = 0.0 / (double)snum_updates;
     double sidy = 0.0 / (double)snum_updates;
     double sidz = DELTA_METERS_V / (double)snum_updates;
-    delta_orientation(pose_in.orientation, 0.0, 0.0, 0.0 * M_PI_2);
+    delta_orientation(0.0, 0.0, 0.0 * M_PI_2);
+
     for (int i = 0; i < snum_updates; i++)
     {
         delta_position(sidx, sidy, sidz);
@@ -569,9 +689,9 @@ int main(int argc, char **argv)
             rate.sleep();
         }
     }
-    double x0 = pose_in.position.x;
-    double y0 = pose_in.position.y;
-    getRPY(pose_in.orientation);               // Get yaw
+    double x0 = pose_stamped.pose.position.x;
+    double y0 = pose_stamped.pose.position.y;
+    getRPY(pose_stamped.pose.orientation);     // Get yaw
     double theta = angles::from_degrees(30.0); // 20 degrees
     double alpha_wire = yaw + theta;
     alpha_wire = regularize_0_pi(within_negative_pi_pi(alpha_wire));
@@ -713,8 +833,6 @@ int main(int argc, char **argv)
         double curry = pose_in.position.y;
         double currz = pose_in.position.z;
         get_offset(yaw, currx, curry, currz, line_a, line_b, line_c, xm, ym);
-        // xvec.push_back(currx - offset * sin(yaw));
-        // yvec.push_back(curry + offset * cos(yaw));
         xvec[curr_data_pos] = currx - offset * sin(yaw);
         yvec[curr_data_pos] = curry + offset * cos(yaw);
         zarr[i] = currz + vertical_dist;
@@ -743,6 +861,11 @@ int main(int argc, char **argv)
     /* 
         Common way points 
     */
+
+    // Creating an object of CSVWriter
+    CSVWriter gps_writer(GPS_FILENAME);
+    double write_arr[6];
+
     for (int iwp = 1; iwp < 20; iwp++)
     {
         ROS_INFO("=====> going to way point %d", iwp);
@@ -791,7 +914,7 @@ int main(int argc, char **argv)
         double idx = dx / (double)num_updates;
         double idy = dy / (double)num_updates;
         double idz = dz / (double)num_updates;
-        delta_orientation(pose_in.orientation, 0.0, 0.0, dyaw);
+        delta_orientation(0.0, 0.0, dyaw);
 
         if (curr_data_pos >= MAX_POS_LEN)
         {
@@ -803,13 +926,27 @@ int main(int argc, char **argv)
             double currx = pose_in.position.x;
             double curry = pose_in.position.y;
             double currz = pose_in.position.z;
+
+            write_arr[0] = gps_msg->latitude;
+            write_arr[1] = gps_msg->longitude;
+            write_arr[2] = gps_msg->altitude;
+
+            std::cout << "lat = " << gps_msg->latitude << ", lon = " << gps_msg->longitude << ", alt = " << gps_msg->altitude << std::endl;
+
             get_offset(yaw, currx, curry, currz, line_a, line_b, line_c, xm, ym);
-            // xvec.push_back(currx - offset * sin(yaw));
-            // yvec.push_back(curry + offset * cos(yaw));
-            xvec[curr_data_pos] = currx - offset * sin(yaw);
-            yvec[curr_data_pos] = curry + offset * cos(yaw);
+
+            double offsetx = -offset * sin(yaw);
+            double offsety = offset * cos(yaw);
+            write_arr[3] = offsetx;
+            write_arr[4] = offsety;
+            write_arr[5] = vertical_dist;
+            gps_writer.add_row(write_arr, write_arr + 6);
+
+            xvec[curr_data_pos] = currx + offsetx;
+            yvec[curr_data_pos] = curry + offsety;
             zarr[i] = currz + vertical_dist;
             delta_position(idx, idy, idz);
+
             for (int j = 0; ros::ok() && j < UPDATE_JUMP; j++)
             {
                 local_pos_pub.publish(pose_stamped);
