@@ -29,6 +29,7 @@
 #include <set>
 #include <iterator>
 #include <string>
+#include <ctime>
 
 #define ROS_RATE 20
 #define UPDATE_JUMP 4 // ROS_RATE / UPDATE_JUMP is the pos update rate
@@ -46,13 +47,15 @@
 #define LEDDAR_RANGE 10.0
 #define SAFETY_H 5.0
 
-const std::string LEDDAR_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/src/leddar_results.txt";
-const std::string GPS_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/src/gps_results.csv";
+const std::string LEDDAR_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/leddar_results.txt";
+const std::string GPS_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/gps_results.csv";
 
 mavros_msgs::State current_state;
 geometry_msgs::Pose pose_in;
 geometry_msgs::PoseStamped pose_stamped;
 sensor_msgs::NavSatFix::ConstPtr gps_msg;
+
+int year, month, day, hour, minute, second;
 
 // double lat = 0.0, lon = 0.0, alt = 0.0;
 double x = 0.0, y = 0.0, z = 0.0;
@@ -71,6 +74,30 @@ double segment_angle = angles::from_degrees(2.5); // 2.5 degrees
 // double ystable = 0.0;
 // double zstable = 0.0;
 // double yawstable = 0.0;
+
+void get_time()
+{
+    // current date/time based on current system
+    time_t now = time(0);
+
+    // char *dt = ctime(&now);
+    // std::cout << "The local date and time is: " << dt << std::endl;
+
+    tm *ltm = localtime(&now);
+    year = 1900 + ltm->tm_year;
+    month = 1 + ltm->tm_mon;
+    day = ltm->tm_mday;
+    hour = ltm->tm_hour;
+    minute = ltm->tm_min;
+    second = ltm->tm_sec;
+
+    // std::cout << "Year" << year << std::endl;
+    // std::cout << "Month: " << month << std::endl;
+    // std::cout << "Day: " << day << std::endl;
+    // std::cout << "Time: " << hour << ":";
+    // std::cout << minute << ":";
+    // std::cout << second << std::endl;
+}
 
 /*
  * A class to create and write data in a csv file.
@@ -864,7 +891,7 @@ int main(int argc, char **argv)
 
     // Creating an object of CSVWriter
     CSVWriter gps_writer(GPS_FILENAME);
-    double write_arr[6];
+    double write_arr[12];
 
     for (int iwp = 1; iwp < 20; iwp++)
     {
@@ -927,6 +954,7 @@ int main(int argc, char **argv)
             double curry = pose_in.position.y;
             double currz = pose_in.position.z;
 
+            get_time();
             write_arr[0] = gps_msg->latitude;
             write_arr[1] = gps_msg->longitude;
             write_arr[2] = gps_msg->altitude;
@@ -940,7 +968,14 @@ int main(int argc, char **argv)
             write_arr[3] = offsetx;
             write_arr[4] = offsety;
             write_arr[5] = vertical_dist;
-            gps_writer.add_row(write_arr, write_arr + 6);
+
+            write_arr[6] = year;
+            write_arr[7] = month;
+            write_arr[8] = day;
+            write_arr[9] = hour;
+            write_arr[10] = minute;
+            write_arr[11] = second;
+            gps_writer.add_row(write_arr, write_arr + 12);
 
             xvec[curr_data_pos] = currx + offsetx;
             yvec[curr_data_pos] = curry + offsety;
