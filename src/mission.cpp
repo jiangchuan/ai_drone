@@ -22,7 +22,7 @@
 #include <tf2/LinearMath/Transform.h>
 #include "tf2_geometry_msgs/tf2_geometry_msgs.h"
 
-#include <angles/angles.h>
+// #include <angles/angles.h>
 
 #include <sstream>
 #include <fstream>
@@ -61,15 +61,24 @@ geometry_msgs::Pose pose_in;
 geometry_msgs::PoseStamped pose_stamped;
 sensor_msgs::NavSatFix::ConstPtr gps_msg;
 
-int year, month, day, hour, minute, second;
+double from_degrees(double d)
+{
+    return d * M_PI / 180.0;
+}
 
+double to_degrees(double r)
+{
+    return r * 180.0 / M_PI;
+}
+
+int year, month, day, hour, minute, second;
 // double lat = 0.0, lon = 0.0, alt = 0.0;
 double x = 0.0, y = 0.0, z = 0.0;
 double roll = 0.0, pitch = 0.0, yaw = 0.0;
 double lambda = 0.8;
 double offset = 0.0;
 double vertical_dist = 1000.0;
-double segment_angle = angles::from_degrees(2.5); // 2.5 degrees
+double segment_angle = from_degrees(2.5); // 2.5 degrees
 
 // double xbuf[BUFFER_SIZE];
 // double ybuf[BUFFER_SIZE];
@@ -502,7 +511,7 @@ double project_z(double izarr[], double zarr[], int size)
     double zslope = get_slope(izarr, izavg, zarr, zavg, size);
     double zintercept = zavg - zslope * izavg;
     double proj_z = zslope * (double)(2 * size - 1) + zintercept;
-    std::cout << "zslope = " << zslope << ", zslope degree = " << angles::to_degrees(atan(zslope)) << std::endl;
+    std::cout << "zslope = " << zslope << ", zslope degree = " << to_degrees(atan(zslope)) << std::endl;
     std::cout << "proj_z = " << proj_z << ", pose.z = " << pose_in.position.z << std::endl;
     return proj_z;
 }
@@ -513,7 +522,7 @@ double project_z_same_x(double izarr[], double izavg, double sum_de, double zarr
     double zslope = get_cross_sum(izarr, izavg, zarr, zavg, size) / sum_de;
     double zintercept = zavg - zslope * izavg;
     double proj_z = zslope * (double)(2 * size - 1) + zintercept;
-    std::cout << "zslope = " << zslope << ", zslope degree = " << angles::to_degrees(atan(zslope)) << std::endl;
+    std::cout << "zslope = " << zslope << ", zslope degree = " << to_degrees(atan(zslope)) << std::endl;
     std::cout << "proj_z = " << proj_z << ", pose.z = " << pose_in.position.z << std::endl;
     return proj_z;
 }
@@ -586,10 +595,10 @@ void delta_orientation(double droll, double dpitch, double dyaw)
 
 void print_state_change(double yaw0, double yaw, double offset0, double offset, double alpha, double theta)
 {
-    ROS_INFO("  >>> status change: yaw0 = %1.1f degrees, yaw = %1.1f degrees", angles::to_degrees(yaw), angles::to_degrees(yaw));
+    ROS_INFO("  >>> status change: yaw0 = %1.1f degrees, yaw = %1.1f degrees", to_degrees(yaw), to_degrees(yaw));
     ROS_INFO("      offset0 = %1.2f, offset = %1.2f", offset0, offset);
-    ROS_INFO("      cable orientation = %1.1f degrees", angles::to_degrees(alpha));
-    ROS_INFO("      theta = %1.1f degrees", angles::to_degrees(theta));
+    ROS_INFO("      cable orientation = %1.1f degrees", to_degrees(alpha));
+    ROS_INFO("      theta = %1.1f degrees", to_degrees(theta));
 }
 
 void print_position(std::string header)
@@ -597,7 +606,7 @@ void print_position(std::string header)
     ROS_INFO(header.c_str());
     ROS_INFO("  >>> end position: x = %1.2f, y = %1.2f, z = %1.2f", pose_in.position.x, pose_in.position.y, pose_in.position.z);
     // ROS_INFO("      lat = %f, lon = %f, z = %1.2f", lat, lon, alt);
-    ROS_INFO("      roll = %1.1f degrees, pitch = %1.1f degrees, yaw = %1.1f degrees\n", angles::to_degrees(roll), angles::to_degrees(pitch), angles::to_degrees(yaw));
+    ROS_INFO("      roll = %1.1f degrees, pitch = %1.1f degrees, yaw = %1.1f degrees\n", to_degrees(roll), to_degrees(pitch), to_degrees(yaw));
 }
 
 bool no_position_yet()
@@ -720,7 +729,7 @@ int main(int argc, char **argv)
     land_cmd.request.altitude = 0.0f;
 
     getRPY(pose_in.orientation); // Get yaw
-    ROS_INFO("  >>> INITIAL yaw = %1.1f degrees", angles::to_degrees(yaw));
+    ROS_INFO("  >>> INITIAL yaw = %1.1f degrees", to_degrees(yaw));
 
     // Wire simulation starts
     int snum_updates = 2 * DELTA_SECONDS_H * ROS_RATE / UPDATE_JUMP;
@@ -741,12 +750,12 @@ int main(int argc, char **argv)
     }
     double x0 = pose_stamped.pose.position.x;
     double y0 = pose_stamped.pose.position.y;
-    getRPY(pose_stamped.pose.orientation);     // Get yaw
-    double theta = angles::from_degrees(30.0); // 20 degrees
+    getRPY(pose_stamped.pose.orientation); // Get yaw
+    double theta = from_degrees(30.0);     // 20 degrees
     double alpha_wire = yaw + theta;
     alpha_wire = regularize_0_pi(within_negative_pi_pi(alpha_wire));
-    ROS_INFO("  >>> START yaw = %1.1f degrees", angles::to_degrees(yaw));
-    ROS_INFO("  >>> TRUE cable orientation = %1.1f degrees", angles::to_degrees(alpha_wire));
+    ROS_INFO("  >>> START yaw = %1.1f degrees", to_degrees(yaw));
+    ROS_INFO("  >>> TRUE cable orientation = %1.1f degrees", to_degrees(alpha_wire));
 
     double half_wire_length = 10.0;
     double xm = x0 + half_wire_length * cos(yaw);
@@ -809,11 +818,11 @@ int main(int argc, char **argv)
                 dx /= shrink_ratio;
                 dy /= shrink_ratio;
                 dz = 0.0;
-                ROS_INFO("  In ladar range, getting close horizontally, yaw = %1.1f degrees, offset = %1.2f, dx = %1.2f, dy = %1.2f", angles::to_degrees(yaw), offset, dx, dy);
+                ROS_INFO("  In ladar range, getting close horizontally, yaw = %1.1f degrees, offset = %1.2f, dx = %1.2f, dy = %1.2f", to_degrees(yaw), offset, dx, dy);
             }
             else
             {
-                ROS_INFO("  In ladar range, getting close vertically, yaw = %1.1f degrees, offset = %1.2f, dx = %1.2f, dy = %1.2f", angles::to_degrees(yaw), offset, dx, dy);
+                ROS_INFO("  In ladar range, getting close vertically, yaw = %1.1f degrees, offset = %1.2f, dx = %1.2f, dy = %1.2f", to_degrees(yaw), offset, dx, dy);
                 double target_dist = vertical_dist - SAFETY_H;
                 if (target_dist >= -DELTA_METERS_V && target_dist <= DELTA_METERS_V)
                 {
