@@ -20,7 +20,7 @@
 #include <tf2/convert.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Transform.h>
-#include "tf2_geometry_msgs/tf2_geometry_msgs.h"
+// #include "tf2_geometry_msgs/tf2_geometry_msgs.h"
 
 // #include <angles/angles.h>
 
@@ -542,9 +542,10 @@ double floor_ceil(double dz, double cap)
 
 void getRPY(geometry_msgs::Quaternion qtn_msg)
 {
-    tf2::Quaternion qtn;
+    // tf2::Quaternion qtn;
     // quaternionMsgToTF(qtn_msg, qtn);
-    tf2::fromMsg(qtn_msg, qtn);
+    // tf2::fromMsg(qtn_msg, qtn);
+    tf2::Quaternion qtn = tf2::Quaternion(qtn_msg.x, qtn_msg.y, qtn_msg.z, qtn_msg.w);
 
     qtn.normalize();
     tf2::Matrix3x3 m(qtn);
@@ -561,11 +562,11 @@ void set_waypoint(double x, double y, double z, double roll, double pitch, doubl
     qtn.setRPY(roll, pitch, yaw);
     qtn.normalize();
     // quaternionTFToMsg(qtn, pose_stamped.pose.orientation);
-    pose_stamped.pose.orientation = tf2::toMsg(qtn);
-    // pose_stamped.pose.orientation.w = qtn.getW();
-    // pose_stamped.pose.orientation.x = qtn.getX();
-    // pose_stamped.pose.orientation.y = qtn.getY();
-    // pose_stamped.pose.orientation.z = qtn.getZ();
+    // pose_stamped.pose.orientation = tf2::toMsg(qtn);
+    pose_stamped.pose.orientation.w = qtn.getW();
+    pose_stamped.pose.orientation.x = qtn.getX();
+    pose_stamped.pose.orientation.y = qtn.getY();
+    pose_stamped.pose.orientation.z = qtn.getZ();
 }
 
 void delta_position(double dx, double dy, double dz)
@@ -579,18 +580,22 @@ void delta_orientation(double droll, double dpitch, double dyaw)
 {
     tf2::Quaternion delta_qtn;
     delta_qtn.setRPY(droll, dpitch, dyaw);
-    tf2::Quaternion qtn;
+
+    // tf2::Quaternion qtn;
     // quaternionMsgToTF(pose_stamped.pose.orientation, qtn);
-    tf2::fromMsg(pose_stamped.pose.orientation, qtn);
+    // tf2::fromMsg(pose_stamped.pose.orientation, qtn);
+
+    geometry_msgs::Quaternion orn = pose_stamped.pose.orientation;
+    tf2::Quaternion qtn = tf2::Quaternion(orn.x, orn.y, orn.z, orn.w);
 
     qtn = delta_qtn * qtn;
     qtn.normalize();
     // quaternionTFToMsg(qtn, pose_stamped.pose.orientation);
-    pose_stamped.pose.orientation = tf2::toMsg(qtn);
-    // pose_stamped.pose.orientation.w = qtn.getW();
-    // pose_stamped.pose.orientation.x = qtn.getX();
-    // pose_stamped.pose.orientation.y = qtn.getY();
-    // pose_stamped.pose.orientation.z = qtn.getZ();
+    // pose_stamped.pose.orientation = tf2::toMsg(qtn);
+    pose_stamped.pose.orientation.w = qtn.getW();
+    pose_stamped.pose.orientation.x = qtn.getX();
+    pose_stamped.pose.orientation.y = qtn.getY();
+    pose_stamped.pose.orientation.z = qtn.getZ();
 }
 
 void print_state_change(double yaw0, double yaw, double offset0, double offset, double alpha, double theta)

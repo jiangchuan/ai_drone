@@ -200,8 +200,8 @@ include_directories(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-add_executable(leddar_publisher src/leddar_publisher.cpp)
-target_link_libraries(leddar_publisher ${catkin_LIBRARIES})
+#add_executable(leddar_publisher src/leddar_publisher.cpp)
+#target_link_libraries(leddar_publisher ${catkin_LIBRARIES})
 
 add_executable(mission src/mission.cpp)
 target_link_libraries(mission ${catkin_LIBRARIES})
