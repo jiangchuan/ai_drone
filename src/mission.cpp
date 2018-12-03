@@ -132,6 +132,7 @@ class CSVWriter
 	 */
     template <typename T>
     void add_row(T first, T last);
+    void add_section(std::streambuf* str_section);
 };
 
 void state_callback(const mavros_msgs::State::ConstPtr &msg)
@@ -207,6 +208,20 @@ void CSVWriter::add_row(T first, T last)
             file << delimeter;
     }
     file << "\n";
+    linesCount++;
+
+    // Close the file
+    file.close();
+}
+
+void CSVWriter::add_section(std::streambuf* str_section)
+{
+    std::fstream file;
+    // Open the file in truncate mode if first line else in Append Mode
+    file.open(fileName, std::ios::out | (linesCount ? std::ios::app : std::ios::trunc));
+
+    // Iterate over the range and add each lement to file seperated by delimeter.
+    file << str_section;
     linesCount++;
 
     // Close the file
@@ -928,7 +943,7 @@ int main(int argc, char **argv)
 
     // Creating an object of CSVWriter
     CSVWriter gps_writer(GPS_FILENAME);
-    double write_arr[12];
+    // double write_arr[12];
 
     for (int iwp = 1; iwp < 20; iwp++)
     {
@@ -985,6 +1000,8 @@ int main(int argc, char **argv)
             half_array(xvec, curr_data_pos);
             curr_data_pos = half_array(yvec, curr_data_pos);
         }
+
+        std::stringstream stream;
         for (int i = 0; i < num_updates; i++, curr_data_pos++)
         {
             double currx = pose_in.position.x;
@@ -992,27 +1009,45 @@ int main(int argc, char **argv)
             double currz = pose_in.position.z;
 
             get_time();
-            write_arr[0] = gps_msg->latitude;
-            write_arr[1] = gps_msg->longitude;
-            write_arr[2] = gps_msg->altitude;
 
-            std::cout << "lat = " << gps_msg->latitude << ", lon = " << gps_msg->longitude << ", alt = " << gps_msg->altitude << std::endl;
+            // printf("Lat = %.8f, Lon = %.8f, Alt = %.3f\n", gps_msg->latitude, gps_msg->longitude, gps_msg->altitude);
+            // std::cout << "Lat = " << std::to_string(gps_msg->latitude) << ", Lon = " << std::to_string(gps_msg->longitude) << ", Alt = " << std::to_string(gps_msg->altitude) << std::endl;
+
+            // write_arr[0] = gps_msg->latitude;
+            // write_arr[1] = gps_msg->longitude;
+            // write_arr[2] = gps_msg->altitude;
+            stream << std::setprecision(10) << gps_msg->latitude << ",";
+            stream << std::setprecision(11) << gps_msg->longitude << ",";
+            stream << std::setprecision(7) << gps_msg->altitude << ",";
+
+            // std::cout << "lat = " << gps_msg->latitude << ", lon = " << gps_msg->longitude << ", alt = " << gps_msg->altitude << std::endl;
 
             get_offset(yaw, currx, curry, currz, line_a, line_b, line_c, xm, ym);
 
             double offsetx = -offset * sin(yaw);
             double offsety = offset * cos(yaw);
-            write_arr[3] = offsetx;
-            write_arr[4] = offsety;
-            write_arr[5] = vertical_dist;
+            // write_arr[3] = offsetx;
+            // write_arr[4] = offsety;
+            // write_arr[5] = vertical_dist;
+            stream << std::setprecision(4) << offsetx << ",";
+            stream << std::setprecision(4) << offsety << ",";
+            stream << std::setprecision(4) << vertical_dist << ",";
 
-            write_arr[6] = year;
-            write_arr[7] = month;
-            write_arr[8] = day;
-            write_arr[9] = hour;
-            write_arr[10] = minute;
-            write_arr[11] = second;
-            gps_writer.add_row(write_arr, write_arr + 12);
+            // write_arr[6] = year;
+            // write_arr[7] = month;
+            // write_arr[8] = day;
+            // write_arr[9] = hour;
+            // write_arr[10] = minute;
+            // write_arr[11] = second;
+            stream << year << ",";
+            stream << month << ",";
+            stream << day << ",";
+            stream << hour << ",";
+            stream << minute << ",";
+            stream << second << "\n";
+
+            // gps_writer.add_row(write_arr, write_arr + 12);
+            gps_writer.add_section(stream.rdbuf());
 
             xvec[curr_data_pos] = currx + offsetx;
             yvec[curr_data_pos] = curry + offsety;
