@@ -7,10 +7,12 @@
 #include <ros/ros.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
+#include <std_msgs/Float64.h>
 #include <mavros_msgs/CommandBool.h>
 #include <mavros_msgs/CommandTOL.h>
 #include <mavros_msgs/SetMode.h>
 #include <mavros_msgs/State.h>
+#include <mavros_msgs/Altitude.h>
 
 #include "sensor_msgs/Imu.h"
 #include "sensor_msgs/NavSatFix.h"
@@ -60,6 +62,9 @@ mavros_msgs::State current_state;
 geometry_msgs::Pose pose_in;
 geometry_msgs::PoseStamped pose_stamped;
 sensor_msgs::NavSatFix::ConstPtr gps_msg;
+sensor_msgs::NavSatFix::ConstPtr gpsraw_msg;
+mavros_msgs::Altitude::ConstPtr alt_msg;
+std_msgs::Float64::ConstPtr relalt_msg;
 
 double from_degrees(double d)
 {
@@ -132,7 +137,7 @@ class CSVWriter
 	 */
     template <typename T>
     void add_row(T first, T last);
-    void add_section(std::streambuf* str_section);
+    void add_section(std::streambuf *str_section);
 };
 
 void state_callback(const mavros_msgs::State::ConstPtr &msg)
@@ -181,12 +186,29 @@ void gps_callback(const sensor_msgs::NavSatFix::ConstPtr &msg)
     // ROS_INFO("GPS latitude: [%f], longitude: [%f], altitude: [%f]", gps_msg->latitude, gps_msg->longitude, gps_msg->altitude);
 }
 
+void gpsraw_callback(const sensor_msgs::NavSatFix::ConstPtr &msg)
+{
+    gpsraw_msg = msg;
+}
+
 void utm_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr &msg)
 {
-    ROS_INFO("Entered utm callback");
     ROS_INFO("UTM Seq: [%d]", msg->header.seq);
     ROS_INFO("pose: x=%f, y=%f, z=%f", msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z);
     ROS_INFO("orientation: x=%f, y=%f, z=%f, w=%f", msg->pose.pose.orientation.x, msg->pose.pose.orientation.y, msg->pose.pose.orientation.z, msg->pose.pose.orientation.w);
+}
+
+void alt_callback(const mavros_msgs::Altitude::ConstPtr &msg)
+{
+    // ROS_INFO("Alt Seq: [%d]", msg->header.seq);
+    // ROS_INFO("monotonic = %f, amsl = %f, local = %f, relative = %f, terrain = %f, bottom_clearance = %f", msg->monotonic, msg->amsl, msg->local, msg->relative, msg->terrain, msg->bottom_clearance);
+    alt_msg = msg;
+}
+
+void relalt_callback(const std_msgs::Float64::ConstPtr &msg)
+{
+    // ROS_INFO("rel_alt=%f", msg->data);
+    relalt_msg = msg;
 }
 
 /*
@@ -214,7 +236,7 @@ void CSVWriter::add_row(T first, T last)
     file.close();
 }
 
-void CSVWriter::add_section(std::streambuf* str_section)
+void CSVWriter::add_section(std::streambuf *str_section)
 {
     std::fstream file;
     // Open the file in truncate mode if first line else in Append Mode
@@ -644,7 +666,13 @@ int main(int argc, char **argv)
     ros::Subscriber local_pos_sub = nh.subscribe<geometry_msgs::PoseStamped>("/mavros/local_position/pose", 10, local_pos_callback);
     ros::Subscriber gps_sub = nh.subscribe<sensor_msgs::NavSatFix>("mavros/global_position/global", 10, gps_callback);
 
+    ros::Subscriber gpsraw_sub = nh.subscribe<sensor_msgs::NavSatFix>("mavros/global_position/raw/fix", 10, gpsraw_callback);
+
     ros::Subscriber utm_sub = nh.subscribe<geometry_msgs::PoseWithCovarianceStamped>("mavros/global_position/local", 10, utm_callback);
+
+    ros::Subscriber alt_sub = nh.subscribe<mavros_msgs::Altitude>("mavros/altitude", 10, alt_callback);
+
+    ros::Subscriber relalt_sub = nh.subscribe<std_msgs::Float64>("mavros/global_position/rel_alt", 10, relalt_callback);
 
     ros::Publisher local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>("mavros/setpoint_position/local", 10);
     ros::ServiceClient arming_client = nh.serviceClient<mavros_msgs::CommandBool>("mavros/cmd/arming");
@@ -1010,35 +1038,23 @@ int main(int argc, char **argv)
 
             get_time();
 
+            // printf("Lat = %.8f, Lon = %.8f, Alt = %.3f, Rel_Alt = %.3f\n", gps_msg->latitude, gps_msg->longitude, gps_msg->altitude, relalt_msg->data);
             // printf("Lat = %.8f, Lon = %.8f, Alt = %.3f\n", gps_msg->latitude, gps_msg->longitude, gps_msg->altitude);
+            // printf("Raw Lat = %.8f, Lon = %.8f, Alt = %.3f\n", gpsraw_msg->latitude, gpsraw_msg->longitude, gpsraw_msg->altitude);
             // std::cout << "Lat = " << std::to_string(gps_msg->latitude) << ", Lon = " << std::to_string(gps_msg->longitude) << ", Alt = " << std::to_string(gps_msg->altitude) << std::endl;
-
-            // write_arr[0] = gps_msg->latitude;
-            // write_arr[1] = gps_msg->longitude;
-            // write_arr[2] = gps_msg->altitude;
             stream << std::setprecision(10) << gps_msg->latitude << ",";
             stream << std::setprecision(11) << gps_msg->longitude << ",";
             stream << std::setprecision(7) << gps_msg->altitude << ",";
-
-            // std::cout << "lat = " << gps_msg->latitude << ", lon = " << gps_msg->longitude << ", alt = " << gps_msg->altitude << std::endl;
+            stream << std::setprecision(7) << alt_msg->amsl << ",";
 
             get_offset(yaw, currx, curry, currz, line_a, line_b, line_c, xm, ym);
 
             double offsetx = -offset * sin(yaw);
             double offsety = offset * cos(yaw);
-            // write_arr[3] = offsetx;
-            // write_arr[4] = offsety;
-            // write_arr[5] = vertical_dist;
             stream << std::setprecision(4) << offsetx << ",";
             stream << std::setprecision(4) << offsety << ",";
             stream << std::setprecision(4) << vertical_dist << ",";
 
-            // write_arr[6] = year;
-            // write_arr[7] = month;
-            // write_arr[8] = day;
-            // write_arr[9] = hour;
-            // write_arr[10] = minute;
-            // write_arr[11] = second;
             stream << year << ",";
             stream << month << ",";
             stream << day << ",";
