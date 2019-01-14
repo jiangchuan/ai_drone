@@ -55,8 +55,6 @@
 #define LEDDAR_RANGE 10.0
 #define SAFETY_H 5.0
 
-bool simulation = false;
-
 const std::string LEDDAR_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/leddar_results.txt";
 const std::string GPS_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/gps_results.csv";
 
@@ -87,10 +85,21 @@ double offset = 0.0;
 double vertical_dist = 1000.0;
 double segment_angle = from_degrees(2.5); // 2.5 degrees
 
+// double xbuf[BUFFER_SIZE];
+// double ybuf[BUFFER_SIZE];
+// double zbuf[BUFFER_SIZE];
+// double yawbuf[BUFFER_SIZE];
+// int ibuf = 0;
+// double xstable = 0.0;
+// double ystable = 0.0;
+// double zstable = 0.0;
+// double yawstable = 0.0;
+
 void get_time()
 {
     // current date/time based on current system
     time_t now = time(0);
+
     // char *dt = ctime(&now);
     // std::cout << "The local date and time is: " << dt << std::endl;
 
@@ -101,6 +110,13 @@ void get_time()
     hour = ltm->tm_hour;
     minute = ltm->tm_min;
     second = ltm->tm_sec;
+
+    // std::cout << "Year" << year << std::endl;
+    // std::cout << "Month: " << month << std::endl;
+    // std::cout << "Day: " << day << std::endl;
+    // std::cout << "Time: " << hour << ":";
+    // std::cout << minute << ":";
+    // std::cout << second << std::endl;
 }
 
 /*
@@ -143,6 +159,18 @@ void local_pos_callback(const geometry_msgs::PoseStamped::ConstPtr &msg)
 {
     pose_in = msg->pose;
     // ROS_INFO("pose: x=[%f], y=[%f], z=[%f]", pose_in.position.x, pose_in.position.y, pose_in.position.z);
+
+    // if (ibuf >= BUFFER_SIZE)
+    // {
+    //     ibuf -= BUFFER_SIZE;
+    // }
+    // xbuf[ibuf] = pose_in.position.x;
+    // ybuf[ibuf] = pose_in.position.y;
+    // zbuf[ibuf] = pose_in.position.z;
+    // ibuf++;
+    // xstable = get_average(xbuf, BUFFER_SIZE);
+    // ystable = get_average(ybuf, BUFFER_SIZE);
+    // zstable = get_average(zbuf, BUFFER_SIZE);
 }
 
 void gps_callback(const sensor_msgs::NavSatFix::ConstPtr &msg)
@@ -653,20 +681,25 @@ int main(int argc, char **argv)
     //the setpoint publishing rate MUST be faster than 2Hz
     ros::Rate rate((double)ROS_RATE);
 
+    // // Test write csv starts
+    // // Creating an object of CSVWriter
+    // CSVWriter gps_writer(GPS_FILENAME);
+    // std::vector<std::string> dataList_1 = {"20", "hi", "99"};
+    // gps_writer.add_row(dataList_1.begin(), dataList_1.end());
+    // std::set<int> dataList_2 = {3, 4, 5};
+    // gps_writer.add_row(dataList_2.begin(), dataList_2.end());
+    // std::string str = "abc";
+    // gps_writer.add_row(str.begin(), str.end());
+    // int arr[] = {3, 4, 2};
+    // gps_writer.add_row(arr, arr + sizeof(arr) / sizeof(int));
+    // // Test write csv ends
+
     // wait for FCU connection
     while (ros::ok() && !current_state.connected)
     {
         ros::spinOnce();
         rate.sleep();
         ROS_INFO("connecting to FCU ...");
-    }
-
-    // wait for position mode
-    while (ros::ok() && current_state.mode != "POSCTL")
-    {
-        ros::spinOnce();
-        rate.sleep();
-        ROS_INFO("waiting for position mode ...");
     }
 
     // wait for local position feed

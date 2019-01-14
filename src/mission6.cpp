@@ -55,8 +55,6 @@
 #define LEDDAR_RANGE 10.0
 #define SAFETY_H 5.0
 
-bool simulation = false;
-
 const std::string LEDDAR_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/leddar_results.txt";
 const std::string GPS_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/gps_results.csv";
 
@@ -659,14 +657,6 @@ int main(int argc, char **argv)
         ros::spinOnce();
         rate.sleep();
         ROS_INFO("connecting to FCU ...");
-    }
-
-    // wait for position mode
-    while (ros::ok() && current_state.mode != "POSCTL")
-    {
-        ros::spinOnce();
-        rate.sleep();
-        ROS_INFO("waiting for position mode ...");
     }
 
     // wait for local position feed
