@@ -235,21 +235,8 @@ std::vector<std::string> split_str(const std::string &s, char delimiter)
     return tokens;
 }
 
-void getRPY(geometry_msgs::Quaternion qtn_msg)
-{
-    // tf2::Quaternion qtn;
-    // quaternionMsgToTF(qtn_msg, qtn);
-    // tf2::fromMsg(qtn_msg, qtn);
-    tf2::Quaternion qtn = tf2::Quaternion(qtn_msg.x, qtn_msg.y, qtn_msg.z, qtn_msg.w);
-
-    qtn.normalize();
-    tf2::Matrix3x3 m(qtn);
-    m.getRPY(roll, pitch, yaw);
-}
-
 bool get_offset()
 {
-    getRPY(pose_in.orientation);
     std::stringstream ss;
     std::string line;
     std::ifstream myfile(LEDDAR_FILENAME);
@@ -280,10 +267,8 @@ bool get_offset()
             the_seg_num = std::stod(segment_records[0]);
         }
     }
-    min_dist *= cos(pitch); // Adjust pitch shift
 
     double offset_angle = (3.5 - the_seg_num) * segment_angle;
-    offset_angle += roll; // Adjust roll shift
     offset = min_dist * sin(offset_angle);
     vertical_dist = min_dist * cos(offset_angle);
     ROS_INFO("the_seg_num = %f, min_dist = %f, offset = %f, vertical_dist = %f", the_seg_num, min_dist, offset, vertical_dist);
@@ -313,9 +298,8 @@ double regularize_0_pi(double ang)
     return ang;
 }
 
-bool get_offset(double x, double y, double z, double a, double b, double c, double xm, double ym)
+bool get_offset(double yaw, double x, double y, double z, double a, double b, double c, double xm, double ym)
 {
-    getRPY(pose_in.orientation);
     double can_a = 8.0;
     double can_c = 50.0;
     double square_sum = a * a + b * b;
@@ -336,23 +320,23 @@ bool get_offset(double x, double y, double z, double a, double b, double c, doub
         }
     }
 
-    double myaw = within_negative_pi_pi(yaw);
+    yaw = within_negative_pi_pi(yaw);
     if (b == 0.0)
     {
-        if (myaw > 0.0)
+        if (yaw > 0.0)
         {
             offset = -offset;
         }
-        offset /= fabs(sin(myaw));
+        offset /= fabs(sin(yaw));
     }
     else
     {
         double line_angle = atan(-a / b);
-        if (myaw > line_angle - M_PI_2 && myaw < line_angle + M_PI_2)
+        if (yaw > line_angle - M_PI_2 && yaw < line_angle + M_PI_2)
         {
             offset = -offset;
         }
-        offset /= fabs(cos(line_angle - myaw));
+        offset /= fabs(cos(line_angle - yaw));
     }
 
     double xproj = (b * (b * x - a * y) - a * c) / square_sum;
@@ -367,9 +351,9 @@ bool get_offset(double x, double y, double z, double a, double b, double c, doub
     return true; // Close enough
 }
 
-double get_perpendicular_offset(double offset, double myaw, double line_angle)
+double get_vertical_offset(double offset, double yaw, double line_angle)
 {
-    return offset * fabs(cos(line_angle - myaw));
+    return offset * fabs(cos(line_angle - yaw));
 }
 
 bool subsample_index(int ll, int ss, int selected[], bool reverse)
@@ -564,6 +548,18 @@ double floor_ceil(double dz, double cap)
         return -cap;
     }
     return dz;
+}
+
+void getRPY(geometry_msgs::Quaternion qtn_msg)
+{
+    // tf2::Quaternion qtn;
+    // quaternionMsgToTF(qtn_msg, qtn);
+    // tf2::fromMsg(qtn_msg, qtn);
+    tf2::Quaternion qtn = tf2::Quaternion(qtn_msg.x, qtn_msg.y, qtn_msg.z, qtn_msg.w);
+
+    qtn.normalize();
+    tf2::Matrix3x3 m(qtn);
+    m.getRPY(roll, pitch, yaw);
 }
 
 void set_waypoint(double x, double y, double z, double roll, double pitch, double yaw)
@@ -824,7 +820,7 @@ int main(int argc, char **argv)
         bool in_ladar_range;
         if (simulation)
         {
-            in_ladar_range = get_offset(pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
+            in_ladar_range = get_offset(yaw, pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
         }
         else
         {
@@ -839,8 +835,8 @@ int main(int argc, char **argv)
             dz = DELTA_METERS_V;
         }
         else
-        { // Getting close vertically
-            // getRPY(pose_in.orientation); // Get yaw
+        {                                // Getting close vertically
+            getRPY(pose_in.orientation); // Get yaw
             dx = -offset * sin(yaw);
             dy = offset * cos(yaw);
 
@@ -850,11 +846,11 @@ int main(int argc, char **argv)
                 dx /= shrink_ratio;
                 dy /= shrink_ratio;
                 dz = 0.0;
-                ROS_INFO("  In ladar range, getting close horizontally, roll = %1.1f degrees, pitch = %1.1f degrees, yaw = %1.1f degrees, offset = %1.2f, dx = %1.2f, dy = %1.2f", to_degrees(roll), to_degrees(pitch), to_degrees(yaw), offset, dx, dy);
+                ROS_INFO("  In ladar range, getting close horizontally, yaw = %1.1f degrees, offset = %1.2f, dx = %1.2f, dy = %1.2f", to_degrees(yaw), offset, dx, dy);
             }
             else
             {
-                ROS_INFO("  In ladar range, getting close vertically, roll = %1.1f degrees, pitch = %1.1f degrees, yaw = %1.1f degrees, offset = %1.2f, dx = %1.2f, dy = %1.2f", to_degrees(roll), to_degrees(pitch), to_degrees(yaw), offset, dx, dy);
+                ROS_INFO("  In ladar range, getting close vertically, yaw = %1.1f degrees, offset = %1.2f, dx = %1.2f, dy = %1.2f", to_degrees(yaw), offset, dx, dy);
                 double target_dist = vertical_dist - SAFETY_H;
                 if (target_dist >= -DELTA_METERS_V && target_dist <= DELTA_METERS_V)
                 {
@@ -925,7 +921,7 @@ int main(int argc, char **argv)
         double currz = pose_in.position.z;
         if (simulation)
         {
-            get_offset(currx, curry, currz, line_a, line_b, line_c, xm, ym);
+            get_offset(yaw, currx, curry, currz, line_a, line_b, line_c, xm, ym);
         }
         else
         {
@@ -951,7 +947,7 @@ int main(int argc, char **argv)
     double alpha_avg = alpha;
     if (simulation)
     {
-        get_offset(pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
+        get_offset(yaw, pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
     }
     else
     {
@@ -959,7 +955,7 @@ int main(int argc, char **argv)
     }
 
     double offset0 = offset;
-    // getRPY(pose_in.orientation); // Get yaw
+    getRPY(pose_in.orientation); // Get yaw
     double yaw0 = yaw;
     print_state_change(yaw0, yaw, offset0, offset, alpha, alpha_avg - yaw);
     print_position("=====> way point 0 finished");
@@ -975,18 +971,18 @@ int main(int argc, char **argv)
     for (int iwp = 1; iwp < 30; iwp++)
     {
         ROS_INFO("=====> going to way point %d", iwp);
-        double perpendicular_offset = get_perpendicular_offset(offset0, yaw0, alpha_avg);
+        double vertical_offset = get_vertical_offset(offset0, yaw0, alpha_avg);
         double diagonal_length = DELTA_METERS_H;
-        if (perpendicular_offset > DELTA_METERS_H)
+        if (vertical_offset > DELTA_METERS_H)
         {
-            if (perpendicular_offset <= 2 * DELTA_METERS_H)
+            if (vertical_offset <= 2 * DELTA_METERS_H)
             {
-                ROS_INFO("WARRING: perpendicular_offset > DELTA_METERS_H but <= 2 * DELTA_METERS_H");
+                ROS_INFO("WARRING: vertical_offset > DELTA_METERS_H but <= 2 * DELTA_METERS_H");
                 diagonal_length *= 2;
             }
             else
             {
-                ROS_INFO("ERROR: perpendicular_offset > 2 * DELTA_METERS_H");
+                ROS_INFO("ERROR: vertical_offset > 2 * DELTA_METERS_H");
                 ROS_INFO("tring to land");
                 while (ros::ok())
                 {
@@ -1007,7 +1003,7 @@ int main(int argc, char **argv)
             }
         }
 
-        double omega = alpha_avg + asin(perpendicular_offset / diagonal_length);
+        double omega = alpha_avg + asin(vertical_offset / diagonal_length);
         double dx = diagonal_length * cos(omega);
         double dy = diagonal_length * sin(omega);
         // double dz = floor_ceil(vertical_dist - SAFETY_H, DELTA_METERS_V);
@@ -1048,7 +1044,7 @@ int main(int argc, char **argv)
 
             if (simulation)
             {
-                get_offset(currx, curry, currz, line_a, line_b, line_c, xm, ym);
+                get_offset(yaw, currx, curry, currz, line_a, line_b, line_c, xm, ym);
             }
             else
             {
@@ -1093,14 +1089,14 @@ int main(int argc, char **argv)
         alpha_avg = lambda * alpha + (1 - lambda) * alpha_avg;
         if (simulation)
         {
-            get_offset(pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
+            get_offset(yaw, pose_in.position.x, pose_in.position.y, pose_in.position.z, line_a, line_b, line_c, xm, ym);
         }
         else
         {
             get_offset();
         }
         offset0 = offset;
-        // getRPY(pose_in.orientation); // Get yaw
+        getRPY(pose_in.orientation); // Get yaw
         yaw0 = yaw;
         std::string pos_header = "=====> way point " + std::to_string(iwp) + " finished";
         print_position(pos_header);
