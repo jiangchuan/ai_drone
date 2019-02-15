@@ -53,13 +53,17 @@
 #define DELTA_METERS_H 1.0
 #define DELTA_METERS_V 1.0 // maximum dz
 #define LEDDAR_RANGE 10.0
-// #define SAFETY_H 5.0
-#define SAFETY_H 1.0
+#define SAFETY_H 5.0
+// #define SAFETY_H 1.0
 
 bool simulation = true;
 
-const std::string LEDDAR_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/leddar_results.txt";
-const std::string GPS_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/gps_results.csv";
+// const std::string LEDDAR_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/leddar_results.txt";
+// const std::string GPS_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/gps_results.csv";
+// const std::string TERMINATE_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/leddar_terminate.txt";
+const std::string LEDDAR_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/leddar_results.txt";
+const std::string GPS_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/gps_results.csv";
+const std::string TERMINATE_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/leddar_terminate.txt";
 
 mavros_msgs::State current_state;
 geometry_msgs::Pose pose_in;
@@ -87,6 +91,9 @@ double lambda = 0.8;
 double offset = 0.0;
 double vertical_dist = 1000.0;
 double segment_angle = from_degrees(2.5); // 2.5 degrees
+
+double pitch_adjust_cap = 1.0;              // adjust at most 1 meter
+double roll_adjust_cap = 2 * segment_angle; // adjust at most 5 degrees
 
 void get_time()
 {
@@ -280,10 +287,11 @@ bool get_offset()
             the_seg_num = std::stod(segment_records[0]);
         }
     }
-    min_dist *= cos(pitch); // Adjust pitch shift
+    double min_dist_adjust = min_dist * cos(pitch);
+    min_dist = std::max(min_dist_adjust, min_dist - 1.0); // Adjust pitch shift
 
     double offset_angle = (3.5 - the_seg_num) * segment_angle;
-    offset_angle += roll; // Adjust roll shift
+    offset_angle += std::min(roll, roll_adjust_cap); // Adjust roll shift
     offset = min_dist * sin(offset_angle);
     vertical_dist = min_dist * cos(offset_angle);
     ROS_INFO("the_seg_num = %f, min_dist = %f, offset = %f, vertical_dist = %f", the_seg_num, min_dist, offset, vertical_dist);
@@ -733,8 +741,9 @@ int main(int argc, char **argv)
     }
 
     // stay at origin for 5 seconds
-    ROS_INFO("stay at origin for %d seconds", DELTA_SECONDS_H);
-    for (int i = 0; ros::ok() && i < DELTA_SECONDS_H * ROS_RATE; i++)
+    int n_wait_sec = 2;
+    ROS_INFO("stay at origin for %d seconds", n_wait_sec);
+    for (int i = 0; ros::ok() && i < n_wait_sec * ROS_RATE; i++)
     {
         local_pos_pub.publish(pose_stamped);
         ros::spinOnce();
@@ -972,7 +981,7 @@ int main(int argc, char **argv)
     CSVWriter gps_writer(GPS_FILENAME);
     // double write_arr[12];
 
-    for (int iwp = 1; iwp < 30; iwp++)
+    for (int iwp = 1; iwp < 20; iwp++)
     {
         ROS_INFO("=====> going to way point %d", iwp);
         double perpendicular_offset = get_perpendicular_offset(offset0, yaw0, alpha_avg);
@@ -1122,6 +1131,11 @@ int main(int argc, char **argv)
         ros::spinOnce();
         rate.sleep();
     }
+
+    std::ofstream terminate_file;
+    terminate_file.open(TERMINATE_FILENAME);
+    terminate_file.close();
+
 
     return 0;
 }
