@@ -26,6 +26,10 @@
 
 // #include <angles/angles.h>
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include <sstream>
 #include <fstream>
 #include <math.h>
@@ -58,12 +62,12 @@
 
 bool simulation = true;
 
-// const std::string LEDDAR_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/leddar_results.txt";
-// const std::string GPS_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/gps_results.csv";
-// const std::string TERMINATE_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/leddar_terminate.txt";
-const std::string LEDDAR_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/leddar_results.txt";
-const std::string GPS_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/gps_results.csv";
-const std::string TERMINATE_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/leddar_terminate.txt";
+const std::string LEDDAR_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/leddar_results.txt";
+const std::string GPS_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/gps_results.csv";
+const std::string TERMINATE_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/leddar_terminate.txt";
+// const std::string LEDDAR_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/leddar_results.txt";
+// const std::string GPS_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/gps_results.csv";
+// const std::string TERMINATE_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/leddar_terminate.txt";
 
 mavros_msgs::State current_state;
 geometry_msgs::Pose pose_in;
@@ -642,6 +646,12 @@ bool no_position_yet()
     return fabs(qtn.x) + fabs(qtn.y) + fabs(qtn.z) + fabs(qtn.w) < 1e-6;
 }
 
+void terminate_leddar() {
+    std::ofstream terminate_file;
+    terminate_file.open(TERMINATE_FILENAME);
+    terminate_file.close();
+}
+
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "mission_node");
@@ -803,6 +813,40 @@ int main(int argc, char **argv)
         Initial way point, adjust to good z
     */
     ROS_INFO("=====> going to initial way point");
+    if (!simulation) { // Check whether leddar is working
+        struct stat stat_result;
+        if (stat(LEDDAR_FILENAME.c_str(), &stat_result) == 0)
+        {
+            std::time_t mod_time = stat_result.st_mtime;
+            std::cout << "Last modified time = " << mod_time << std::endl;
+
+            std::time_t current_time = std::time(0);
+            std::cout << "Current time = " << current_time << std::endl;
+
+            if (current_time - mod_time > 10) // Older than 10 seconds, leddar read not working
+            {
+                ROS_INFO("tring to land");
+                while (ros::ok())
+                {
+                    if (ros::Time::now() - last_request > ros::Duration(5.0))
+                    {
+                        if (land_client.call(land_cmd) && land_cmd.response.success)
+                        {
+                            ROS_INFO("Landing");
+                            break;
+                        }
+                        last_request = ros::Time::now();
+                    }
+                    local_pos_pub.publish(pose_stamped);
+                    ros::spinOnce();
+                    rate.sleep();
+                }
+                terminate_leddar();
+                return 0;
+            }
+        }
+    }
+
     double dx = 0.0, dy = 0.0, dz = 0.0;
     bool good_initial = false;
     int num_trial = 0;
@@ -826,6 +870,7 @@ int main(int argc, char **argv)
                 ros::spinOnce();
                 rate.sleep();
             }
+            terminate_leddar();
             return 0;
         }
         num_trial++;
@@ -1012,6 +1057,7 @@ int main(int argc, char **argv)
                     ros::spinOnce();
                     rate.sleep();
                 }
+                terminate_leddar();
                 return 0;
             }
         }
@@ -1132,10 +1178,7 @@ int main(int argc, char **argv)
         rate.sleep();
     }
 
-    std::ofstream terminate_file;
-    terminate_file.open(TERMINATE_FILENAME);
-    terminate_file.close();
-
+    terminate_leddar();
 
     return 0;
 }
