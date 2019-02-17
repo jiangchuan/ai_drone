@@ -62,12 +62,12 @@
 
 bool simulation = true;
 
-const std::string LEDDAR_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/leddar_results.txt";
-const std::string GPS_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/gps_results.csv";
-const std::string TERMINATE_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/leddar_terminate.txt";
-// const std::string LEDDAR_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/leddar_results.txt";
-// const std::string GPS_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/gps_results.csv";
-// const std::string TERMINATE_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/leddar_terminate.txt";
+// const std::string LEDDAR_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/leddar_results.txt";
+// const std::string GPS_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/gps_results.csv";
+// const std::string TERMINATE_FILENAME = "/home/jiangchuan/catkin_ws/src/ai_drone/data/leddar_terminate.txt";
+const std::string LEDDAR_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/leddar_results.txt";
+const std::string GPS_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/gps_results.csv";
+const std::string TERMINATE_FILENAME = "/home/pi/catkin_ws/src/ai_drone/data/leddar_terminate.txt";
 
 mavros_msgs::State current_state;
 geometry_msgs::Pose pose_in;
@@ -750,9 +750,10 @@ int main(int argc, char **argv)
         rate.sleep();
     }
 
-    // stay at origin for 5 seconds
+    // stay at 0.5m for 5 seconds
     int n_wait_sec = 2;
     ROS_INFO("stay at origin for %d seconds", n_wait_sec);
+    delta_position(0.0, 0.0, 0.5);
     for (int i = 0; ros::ok() && i < n_wait_sec * ROS_RATE; i++)
     {
         local_pos_pub.publish(pose_stamped);
